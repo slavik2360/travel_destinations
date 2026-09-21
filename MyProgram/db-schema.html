@@ -2,236 +2,182 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Схема базы данных</title>
 <style>
-  :root {
-    --bg: #eef6fb;
-    --panel: #ffffff;
-    --border: #cfe3ee;
-    --accent: #2189bd;
-    --text: #12293c;
-    --subtext: #4c6c82;
-  }
-  * { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
-    background: var(--bg);
+    background: #ffffff;
+    overflow-x: auto;
     font-family: 'Segoe UI', Arial, sans-serif;
-    color: var(--text);
-  }
-  header {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 32px 24px 8px;
   }
   h1 {
-    font-size: 24px;
-    margin: 0 0 6px;
+    font-size: 18px;
+    color: #12293c;
+    margin: 20px 24px 4px;
   }
-  header p {
-    color: var(--subtext);
-    margin: 0;
-    line-height: 1.5;
-  }
-  #diagram-wrap {
-    max-width: 1100px;
-    margin: 16px auto;
-    padding: 20px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow-x: auto;
-  }
-  .legend {
-    max-width: 1100px;
-    margin: 0 auto 40px;
-    padding: 20px 24px;
-  }
-  .legend h2 {
-    font-size: 16px;
-    margin: 0 0 10px;
-  }
-  .legend ul {
-    margin: 0 0 18px;
-    padding-left: 20px;
-    line-height: 1.6;
-  }
-  .legend code {
-    background: #dff2fb;
-    color: var(--text);
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 13px;
-  }
-  .note {
-    background: #fff7e6;
-    border: 1px solid #f0d999;
-    border-radius: 8px;
-    padding: 12px 16px;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .loading {
-    color: var(--subtext);
-    font-size: 14px;
-  }
+  #diagram { display: block; margin: 0 auto; }
+
+  .tbl-box    { fill: #ffffff; stroke: #12293c; stroke-width: 1.3; }
+  .tbl-header { fill: #dff2fb; }
+  .tbl-title  { fill: #12293c; font: 700 12px Arial, sans-serif; }
+  .tbl-sep    { stroke: #2189bd; stroke-width: 1.2; }
+  .tbl-rowsep { stroke: #e3edf4; stroke-width: 1; }
+  .tbl-badge  { fill: #2189bd; font: 700 9px Arial, sans-serif; }
+  .tbl-col    { fill: #12293c; font: 500 11px Arial, sans-serif; }
+  .tbl-note   { fill: #8096a6; font: 500 9px Arial, sans-serif; }
+  .tbl-box-dim   { fill: #f7f9fb; stroke: #b9c7d0; stroke-width: 1.2; stroke-dasharray: 3 3; }
+  .tbl-header-dim{ fill: #eef2f4; }
+
+  .rel-line  { stroke: #8096a6; stroke-width: 1.2; fill: none; }
+  .rel-label { fill: #2189bd; font: 700 10px Arial, sans-serif; }
+  .rel-field { fill: #4c6c82; font: 500 9px Arial, sans-serif; }
+  .section-title { fill: #4c6c82; font: 700 12px Arial, sans-serif; }
+
+  .legend { margin: 10px 24px 30px; max-width: 1200px; }
+  .legend h2 { font-size: 13px; color: #12293c; margin: 18px 0 6px; }
+  .legend ul { margin: 0; padding-left: 18px; }
+  .legend li { font-size: 12.5px; color: #4c6c82; line-height: 1.55; }
+  .legend b { color: #12293c; }
+  .legend code { background: #dff2fb; padding: 0 4px; border-radius: 3px; color: #12293c; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Схема базы данных</h1>
-  <p>
-    SQLite-база (<code>travel_expert.db</code>), которую создаёт и наполняет класс
-    <code>Database</code> в <code>main.py</code>: семь справочников с вариантами ответов
-    мастера вопросов, таблица направлений (база знаний) и журнал истории подборов.
-  </p>
-</header>
-
-<div id="diagram-wrap">
-  <div class="loading">Схема загружается…</div>
-  <pre class="mermaid">
-erDiagram
-    BUDGETS {
-        integer id PK
-        text code UK "economy / standard / high / luxury"
-        text name
-        integer min_price
-        integer max_price
-        text icon
-    }
-    CONTINENTS {
-        integer id PK
-        text code UK "asia / africa / europe / ..."
-        text name
-        text icon
-    }
-    REST_TYPES {
-        integer id PK
-        text code UK "beach / excursion / nature / ..."
-        text name
-        text icon
-    }
-    SEASONS {
-        integer id PK
-        text code UK "spring / summer / autumn / winter"
-        text name
-        text icon
-    }
-    DURATIONS {
-        integer id PK
-        text code UK "short / week / long / extended"
-        text name
-        text icon
-    }
-    VISAS {
-        integer id PK
-        text code UK "visa_free / easy_visa / advance_visa"
-        text name
-        text icon
-    }
-    INTERESTS {
-        integer id PK
-        text code UK "gastronomy / nightlife / family / ..."
-        text name
-        text icon
-    }
-    DESTINATIONS {
-        integer id PK
-        text budget_code FK
-        text continent_code FK
-        text type_code FK
-        text season_code FK "или 'any'"
-        text duration_code FK "или 'any'"
-        text visa_code FK "или 'any'"
-        text interest_code FK "или 'any'"
-        text country
-        text city
-        text description
-    }
-    HISTORY {
-        integer id PK
-        text dt "дата и время подбора"
-        text budget FK "или 'any'"
-        text continent FK "или 'any'"
-        text rest_type FK "или 'any'"
-        text season FK "или 'any'"
-        text duration FK "или 'any'"
-        text visa FK "или 'any'"
-        text interest FK "или 'any'"
-        integer use_ai "0 = правила, 1 = ИИ-режим"
-        text country
-        text city
-    }
-    SEED_META {
-        text key PK "например 'destinations_seed_version'"
-        text value
-    }
-
-    BUDGETS ||--o{ DESTINATIONS : "budget_code"
-    CONTINENTS ||--o{ DESTINATIONS : "continent_code"
-    REST_TYPES ||--o{ DESTINATIONS : "type_code"
-    SEASONS ||--o{ DESTINATIONS : "season_code"
-    DURATIONS ||--o{ DESTINATIONS : "duration_code"
-    VISAS ||--o{ DESTINATIONS : "visa_code"
-    INTERESTS ||--o{ DESTINATIONS : "interest_code"
-
-    BUDGETS ||--o{ HISTORY : "budget"
-    CONTINENTS ||--o{ HISTORY : "continent"
-    REST_TYPES ||--o{ HISTORY : "rest_type"
-    SEASONS ||--o{ HISTORY : "season"
-    DURATIONS ||--o{ HISTORY : "duration"
-    VISAS ||--o{ HISTORY : "visa"
-    INTERESTS ||--o{ HISTORY : "interest"
-  </pre>
-</div>
+<h1>Схема базы данных (travel_expert.db)</h1>
+<svg id="diagram" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8096a6"></path>
+    </marker>
+  </defs>
+</svg>
 
 <div class="legend">
-  <h2>Как это устроено</h2>
+  <h2>Что к чему</h2>
   <ul>
-    <li><b>7 справочников</b> (<code>budgets</code>, <code>continents</code>, <code>rest_types</code>,
-      <code>seasons</code>, <code>durations</code>, <code>visas</code>, <code>interests</code>) - фиксированные
-      варианты ответов мастера вопросов. У каждого: <code>code</code> (уникальный текстовый код,
-      используется для связи), <code>name</code> (что видит пользователь) и <code>icon</code> (эмодзи).
-      У <code>budgets</code> дополнительно диапазон цены (<code>min_price</code>/<code>max_price</code>).</li>
-    <li><b><code>destinations</code></b> - собственно база знаний (213 направлений на момент сборки):
-      каждая строка - это правило вида «при таком сочетании критериев предложить эту страну/город».
-      Можно редактировать прямо в приложении (окно «База знаний»).</li>
-    <li><b><code>history</code></b> - журнал всех прошлых подборов: какие ответы дал пользователь,
-      каким движком (<code>use_ai</code>) и что было рекомендовано.</li>
-    <li><b><code>seed_meta</code></b> - служебная таблица из одной строки, хранящая версию набора
-      направлений (<code>destinations_seed_version</code>); не связана с остальными таблицами -
-      нужна только чтобы при обновлении приложения дозаполнить новые направления, не трогая уже
-      существующие или добавленные пользователем вручную.</li>
+    <li><b>budgets, continents, rest_types, seasons, durations, visas, interests</b> - справочники вариантов ответа (ключ - <code>code</code>).</li>
+    <li><b>destinations</b> - база знаний: правила подбора (213 направлений).</li>
+    <li><b>history</b> - журнал прошлых подборов.</li>
+    <li><b>seed_meta</b> - версия набора направлений, с остальными таблицами не связана.</li>
+    <li><b>1:N</b> - одной записи справочника соответствует много строк в destinations/history.</li>
+    <li><b>FK</b> - связь по коду на уровне логики приложения, а не SQL <code>FOREIGN KEY</code> (поля умеют быть <code>'any'</code> = "не важно", что настоящий внешний ключ не допускает).</li>
   </ul>
-  <div class="note">
-    ⚠️ Важный нюанс: связи на диаграмме - <i>логические</i>, а не настоящие <code>FOREIGN KEY</code>
-    в SQL. Так сделано намеренно: у <code>destinations</code> и <code>history</code> многие поля
-    (сезон, продолжительность, виза, интересы) умеют принимать специальное значение
-    <code>'any'</code> ("любой/не важно"), которое не соответствует ни одной строке справочника -
-    настоящий внешний ключ такого бы не позволил. Соответствие кодов реальным справочникам
-    проверяется на уровне логики приложения (<code>RecommendationEngine</code> /
-    <code>AISimulatedEngine</code> в <code>main.py</code>), а не СУБД.
-  </div>
 </div>
 
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({
-    startOnLoad: true,
-    theme: "base",
-    themeVariables: {
-      background: "#ffffff",
-      primaryColor: "#dff2fb",
-      primaryBorderColor: "#2189bd",
-      primaryTextColor: "#12293c",
-      lineColor: "#4c6c82",
-      tertiaryColor: "#eef6fb",
-      fontFamily: "Segoe UI, Arial, sans-serif"
-    }
+<script>
+(function () {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById('diagram');
+
+  function el(tag, attrs, cls) {
+    const e = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (cls) e.setAttribute('class', cls);
+    return e;
+  }
+  function text(x, y, str, cls, anchor) {
+    const t = el('text', { x: x, y: y, 'text-anchor': anchor || 'middle' }, cls);
+    t.textContent = str;
+    return t;
+  }
+
+  const ROW_H = 17, HEADER_H = 22;
+
+  // Таблица: заголовок + список колонок ("PK"/"UK"/"FK" слева, тип - справа).
+  function drawTable(x, y, w, title, columns, dim) {
+    const h = HEADER_H + columns.length * ROW_H;
+    svg.appendChild(el('rect', { x, y, width: w, height: h, rx: 7 }, dim ? 'tbl-box-dim' : 'tbl-box'));
+    svg.appendChild(el('rect', { x, y, width: w, height: HEADER_H, rx: 7 }, dim ? 'tbl-header-dim' : 'tbl-header'));
+    svg.appendChild(el('rect', { x, y: y + HEADER_H - 7, width: w, height: 7 }, dim ? 'tbl-header-dim' : 'tbl-header'));
+    svg.appendChild(text(x + w / 2, y + 15, title, 'tbl-title'));
+    svg.appendChild(el('line', { x1: x, y1: y + HEADER_H, x2: x + w, y2: y + HEADER_H }, 'tbl-sep'));
+    columns.forEach(function (col, i) {
+      const ry = y + HEADER_H + i * ROW_H;
+      if (i > 0) svg.appendChild(el('line', { x1: x, y1: ry, x2: x + w, y2: ry }, 'tbl-rowsep'));
+      if (col.key) svg.appendChild(text(x + 8, ry + 12, col.key, 'tbl-badge', 'start'));
+      svg.appendChild(text(x + 30, ry + 12, col.name, 'tbl-col', 'start'));
+      if (col.note) svg.appendChild(text(x + w - 7, ry + 12, col.note, 'tbl-note', 'end'));
+    });
+    return { x, y, w, h, top: y, bottom: y + h, cx: x + w / 2 };
+  }
+
+  function vline(x1, y1, x2, y2, label, field) {
+    svg.appendChild(el('line', { x1, y1, x2, y2, 'marker-end': 'url(#arrow)' }, 'rel-line'));
+    svg.appendChild(text(x1 + 5, y1 + 12, label, 'rel-label', 'start'));
+    if (field) svg.appendChild(text(x2 + 5, y2 - 6, field, 'rel-field', 'start'));
+  }
+
+  // ---------- Раскладка ----------
+  const LOOKUP_W = 148, GAP = 16;
+  const LOOKUPS = [
+    { title: 'budgets',    field: 'budget_code / budget',       cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'continents', field: 'continent_code / continent', cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'rest_types', field: 'type_code / rest_type',      cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'seasons',    field: 'season_code / season',       cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'durations',  field: 'duration_code / duration',   cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'visas',      field: 'visa_code / visa',           cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] },
+    { title: 'interests',  field: 'interest_code / interest',   cols: [{ key: 'PK', name: 'id' }, { key: 'UK', name: 'code' }, { name: 'name' }] }
+  ];
+
+  const totalW = LOOKUPS.length * LOOKUP_W + (LOOKUPS.length - 1) * GAP;
+  const W = totalW + 60;
+  const startX = (W - totalW) / 2;
+  const CX = W / 2;
+
+  let cursorY = 14;
+  const lookupNodes = LOOKUPS.map(function (l, i) {
+    return drawTable(startX + i * (LOOKUP_W + GAP), cursorY, LOOKUP_W, l.title, l.cols);
   });
-  document.querySelector('#diagram-wrap .loading').remove();
+  cursorY = lookupNodes[0].bottom + 34;
+
+  // --- destinations: одна прямая вертикаль на справочник, подписи "1:N" + название поля ---
+  const DEST_COLS = [
+    { key: 'PK', name: 'id' },
+    { key: 'FK', name: 'budget_code' }, { key: 'FK', name: 'continent_code' },
+    { key: 'FK', name: 'type_code' }, { key: 'FK', name: 'season_code', note: "'any'" },
+    { key: 'FK', name: 'duration_code', note: "'any'" }, { key: 'FK', name: 'visa_code', note: "'any'" },
+    { key: 'FK', name: 'interest_code', note: "'any'" },
+    { name: 'country' }, { name: 'city' }, { name: 'description' }
+  ];
+  const destNode = drawTable(startX, cursorY, totalW, 'destinations  (база знаний)', DEST_COLS);
+  lookupNodes.forEach(function (node, i) {
+    vline(node.cx, node.bottom, node.cx, destNode.top, '1:N', LOOKUPS[i].field.split(' / ')[0]);
+  });
+  cursorY = destNode.bottom + 46;
+
+  // --- history: те же 7 справочников, показаны компактно (без повторения колонок) ---
+  svg.appendChild(text(CX, cursorY, 'те же справочники также ссылаются на history:', 'section-title'));
+  cursorY += 14;
+  const anchorNodes = LOOKUPS.map(function (l, i) {
+    return drawTable(startX + i * (LOOKUP_W + GAP), cursorY, LOOKUP_W, l.title, [], true);
+  });
+  cursorY = anchorNodes[0].bottom + 34;
+
+  const HIST_COLS = [
+    { key: 'PK', name: 'id' }, { name: 'dt' },
+    { key: 'FK', name: 'budget', note: "'any'" }, { key: 'FK', name: 'continent', note: "'any'" },
+    { key: 'FK', name: 'rest_type', note: "'any'" }, { key: 'FK', name: 'season', note: "'any'" },
+    { key: 'FK', name: 'duration', note: "'any'" }, { key: 'FK', name: 'visa', note: "'any'" },
+    { key: 'FK', name: 'interest', note: "'any'" },
+    { name: 'use_ai' }, { name: 'country' }, { name: 'city' }
+  ];
+  const histNode = drawTable(startX, cursorY, totalW, 'history  (журнал подборов)', HIST_COLS);
+  anchorNodes.forEach(function (node, i) {
+    vline(node.cx, node.bottom, node.cx, histNode.top, '1:N', LOOKUPS[i].field.split(' / ')[1]);
+  });
+  cursorY = histNode.bottom + 40;
+
+  // --- seed_meta: отдельно, без связей ---
+  const seedNode = drawTable(startX, cursorY, 220, 'seed_meta', [
+    { key: 'PK', name: 'key' }, { name: 'value' }
+  ], true);
+  svg.appendChild(text(seedNode.x + seedNode.w + 12, seedNode.top + seedNode.h / 2 + 4, '← без связей с остальными таблицами', 'rel-field', 'start'));
+  cursorY = seedNode.bottom + 20;
+
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + cursorY);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', cursorY);
+})();
 </script>
 </body>
 </html>

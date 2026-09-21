@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Схема базы данных</title>
+<style>
+  :root {
+    --bg: #eef6fb;
+    --panel: #ffffff;
+    --border: #cfe3ee;
+    --accent: #2189bd;
+    --text: #12293c;
+    --subtext: #4c6c82;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: var(--text);
+  }
+  header {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 8px;
+  }
+  h1 {
+    font-size: 24px;
+    margin: 0 0 6px;
+  }
+  header p {
+    color: var(--subtext);
+    margin: 0;
+    line-height: 1.5;
+  }
+  #diagram-wrap {
+    max-width: 1100px;
+    margin: 16px auto;
+    padding: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+  .legend {
+    max-width: 1100px;
+    margin: 0 auto 40px;
+    padding: 20px 24px;
+  }
+  .legend h2 {
+    font-size: 16px;
+    margin: 0 0 10px;
+  }
+  .legend ul {
+    margin: 0 0 18px;
+    padding-left: 20px;
+    line-height: 1.6;
+  }
+  .legend code {
+    background: #dff2fb;
+    color: var(--text);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .note {
+    background: #fff7e6;
+    border: 1px solid #f0d999;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .loading {
+    color: var(--subtext);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Схема базы данных</h1>
+  <p>
+    SQLite-база (<code>travel_expert.db</code>), которую создаёт и наполняет класс
+    <code>Database</code> в <code>main.py</code>: семь справочников с вариантами ответов
+    мастера вопросов, таблица направлений (база знаний) и журнал истории подборов.
+  </p>
+</header>
+
+<div id="diagram-wrap">
+  <div class="loading">Схема загружается…</div>
+  <pre class="mermaid">
+erDiagram
+    BUDGETS {
+        integer id PK
+        text code UK "economy / standard / high / luxury"
+        text name
+        integer min_price
+        integer max_price
+        text icon
+    }
+    CONTINENTS {
+        integer id PK
+        text code UK "asia / africa / europe / ..."
+        text name
+        text icon
+    }
+    REST_TYPES {
+        integer id PK
+        text code UK "beach / excursion / nature / ..."
+        text name
+        text icon
+    }
+    SEASONS {
+        integer id PK
+        text code UK "spring / summer / autumn / winter"
+        text name
+        text icon
+    }
+    DURATIONS {
+        integer id PK
+        text code UK "short / week / long / extended"
+        text name
+        text icon
+    }
+    VISAS {
+        integer id PK
+        text code UK "visa_free / easy_visa / advance_visa"
+        text name
+        text icon
+    }
+    INTERESTS {
+        integer id PK
+        text code UK "gastronomy / nightlife / family / ..."
+        text name
+        text icon
+    }
+    DESTINATIONS {
+        integer id PK
+        text budget_code FK
+        text continent_code FK
+        text type_code FK
+        text season_code FK "или 'any'"
+        text duration_code FK "или 'any'"
+        text visa_code FK "или 'any'"
+        text interest_code FK "или 'any'"
+        text country
+        text city
+        text description
+    }
+    HISTORY {
+        integer id PK
+        text dt "дата и время подбора"
+        text budget FK "или 'any'"
+        text continent FK "или 'any'"
+        text rest_type FK "или 'any'"
+        text season FK "или 'any'"
+        text duration FK "или 'any'"
+        text visa FK "или 'any'"
+        text interest FK "или 'any'"
+        integer use_ai "0 = правила, 1 = ИИ-режим"
+        text country
+        text city
+    }
+    SEED_META {
+        text key PK "например 'destinations_seed_version'"
+        text value
+    }
+
+    BUDGETS ||--o{ DESTINATIONS : "budget_code"
+    CONTINENTS ||--o{ DESTINATIONS : "continent_code"
+    REST_TYPES ||--o{ DESTINATIONS : "type_code"
+    SEASONS ||--o{ DESTINATIONS : "season_code"
+    DURATIONS ||--o{ DESTINATIONS : "duration_code"
+    VISAS ||--o{ DESTINATIONS : "visa_code"
+    INTERESTS ||--o{ DESTINATIONS : "interest_code"
+
+    BUDGETS ||--o{ HISTORY : "budget"
+    CONTINENTS ||--o{ HISTORY : "continent"
+    REST_TYPES ||--o{ HISTORY : "rest_type"
+    SEASONS ||--o{ HISTORY : "season"
+    DURATIONS ||--o{ HISTORY : "duration"
+    VISAS ||--o{ HISTORY : "visa"
+    INTERESTS ||--o{ HISTORY : "interest"
+  </pre>
+</div>
+
+<div class="legend">
+  <h2>Как это устроено</h2>
+  <ul>
+    <li><b>7 справочников</b> (<code>budgets</code>, <code>continents</code>, <code>rest_types</code>,
+      <code>seasons</code>, <code>durations</code>, <code>visas</code>, <code>interests</code>) - фиксированные
+      варианты ответов мастера вопросов. У каждого: <code>code</code> (уникальный текстовый код,
+      используется для связи), <code>name</code> (что видит пользователь) и <code>icon</code> (эмодзи).
+      У <code>budgets</code> дополнительно диапазон цены (<code>min_price</code>/<code>max_price</code>).</li>
+    <li><b><code>destinations</code></b> - собственно база знаний (213 направлений на момент сборки):
+      каждая строка - это правило вида «при таком сочетании критериев предложить эту страну/город».
+      Можно редактировать прямо в приложении (окно «База знаний»).</li>
+    <li><b><code>history</code></b> - журнал всех прошлых подборов: какие ответы дал пользователь,
+      каким движком (<code>use_ai</code>) и что было рекомендовано.</li>
+    <li><b><code>seed_meta</code></b> - служебная таблица из одной строки, хранящая версию набора
+      направлений (<code>destinations_seed_version</code>); не связана с остальными таблицами -
+      нужна только чтобы при обновлении приложения дозаполнить новые направления, не трогая уже
+      существующие или добавленные пользователем вручную.</li>
+  </ul>
+  <div class="note">
+    ⚠️ Важный нюанс: связи на диаграмме - <i>логические</i>, а не настоящие <code>FOREIGN KEY</code>
+    в SQL. Так сделано намеренно: у <code>destinations</code> и <code>history</code> многие поля
+    (сезон, продолжительность, виза, интересы) умеют принимать специальное значение
+    <code>'any'</code> ("любой/не важно"), которое не соответствует ни одной строке справочника -
+    настоящий внешний ключ такого бы не позволил. Соответствие кодов реальным справочникам
+    проверяется на уровне логики приложения (<code>RecommendationEngine</code> /
+    <code>AISimulatedEngine</code> в <code>main.py</code>), а не СУБД.
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      background: "#ffffff",
+      primaryColor: "#dff2fb",
+      primaryBorderColor: "#2189bd",
+      primaryTextColor: "#12293c",
+      lineColor: "#4c6c82",
+      tertiaryColor: "#eef6fb",
+      fontFamily: "Segoe UI, Arial, sans-serif"
+    }
+  });
+  document.querySelector('#diagram-wrap .loading').remove();
+</script>
+</body>
+</html>

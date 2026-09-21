@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Схема</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    overflow-x: auto;
+  }
+  #diagram {
+    display: block;
+    min-width: 900px;
+  }
+  .node-text {
+    fill: #12293c;
+    font: 600 11px Arial, sans-serif;
+  }
+  .row-title {
+    fill: #4c6c82;
+    font: 700 12px Arial, sans-serif;
+  }
+  .edge-label {
+    fill: #4c6c82;
+    font: 500 10px Arial, sans-serif;
+  }
+  .edge-label-accent {
+    fill: #2189bd;
+    font: 700 10px Arial, sans-serif;
+  }
+
+  /* Ромб = вопрос (Да/Нет пользователю) */
+  .q-diamond {
+    fill: #dff2fb;
+    stroke: #2189bd;
+    stroke-width: 1.6;
+  }
+  /* Прямоугольник = ответ / результат / системное действие */
+  .a-rect {
+    fill: #ffffff;
+    stroke: #12293c;
+    stroke-width: 1.4;
+  }
+  .a-rect-wild {
+    fill: #f2f2f2;
+    stroke: #8096a6;
+    stroke-width: 1.4;
+    stroke-dasharray: 4 3;
+  }
+  .a-rect-stage {
+    fill: #f2f2f2;
+    stroke: #8096a6;
+    stroke-width: 1.4;
+  }
+  .a-rect-final {
+    fill: #dff2fb;
+    stroke: #2189bd;
+    stroke-width: 1.8;
+  }
+  .a-rect-rules {
+    fill: #dff2fb;
+    stroke: #2189bd;
+    stroke-width: 2;
+  }
+  /* Наложенные ромб + прямоугольник - особый пример результата (ромб поверх, обе фигуры в одной голубой гамме) */
+  .a-rect-overlay {
+    fill: #eaf5fb;
+    stroke: #2189bd;
+    stroke-width: 1.5;
+  }
+  .q-diamond-overlay {
+    fill: #bfe3f5;
+    fill-opacity: 0.82;
+    stroke: #2189bd;
+    stroke-width: 2;
+  }
+  .a-rect-ai {
+    fill: #efe8fc;
+    stroke: #7c4fd6;
+    stroke-width: 2;
+  }
+
+  .edge { stroke: #4c6c82; stroke-width: 1.3; fill: none; }
+  .trunk { stroke: #2189bd; stroke-width: 2; fill: none; }
+  .trunk-bus { stroke: #2189bd; stroke-width: 1.3; opacity: 0.55; }
+  .bypass { stroke: #8096a6; stroke-width: 1.2; fill: none; stroke-dasharray: 3 4; }
+  .mk-soft { fill: #4c6c82; }
+  .mk-accent { fill: #2189bd; }
+</style>
+</head>
+<body>
+<svg id="diagram" viewBox="0 0 1180 1300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="mk-soft"></path>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="mk-accent"></path>
+    </marker>
+  </defs>
+</svg>
+
+<script>
+(function () {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById('diagram');
+  const W = 1180;
+  const CX = W / 2;
+  const DIAMOND_H = 56;
+  const RECT_H = 36;
+  const NODE_GAP = 26;
+  const STUB = 20;
+  const ARROW_LEN = 26;
+  const ROW_GAP_AFTER = 16;
+
+  function el(tag, attrs, cls) {
+    const e = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (cls) e.setAttribute('class', cls);
+    return e;
+  }
+  function text(x, y, str, cls, anchor) {
+    const t = el('text', { x: x, y: y, 'text-anchor': anchor || 'middle' }, cls);
+    t.textContent = str;
+    return t;
+  }
+  function diamondWidthFor(label) {
+    return Math.max(100, 34 + label.length * 9.2);
+  }
+  function rectWidthFor(label) {
+    return Math.max(76, 22 + label.length * 6.6);
+  }
+
+  // Ромб = вопрос "Да/Нет" пользователю
+  function drawDiamond(cx, cy, w, h, label) {
+    const hw = w / 2, hh = h / 2;
+    const points = [
+      cx + ',' + (cy - hh),
+      (cx + hw) + ',' + cy,
+      cx + ',' + (cy + hh),
+      (cx - hw) + ',' + cy
+    ].join(' ');
+    svg.appendChild(el('polygon', { points: points }, 'q-diamond'));
+    svg.appendChild(text(cx, cy + 4, label, 'node-text'));
+    return { cx: cx, cy: cy, w: w, topY: cy - hh, bottomY: cy + hh };
+  }
+
+  // Прямоугольник = ответ / результат / системное действие
+  function drawRectNode(cx, cy, w, h, label, cls) {
+    const hw = w / 2, hh = h / 2;
+    svg.appendChild(el('rect', { x: cx - hw, y: cy - hh, width: w, height: h, rx: 7 }, cls || 'a-rect'));
+    svg.appendChild(text(cx, cy + 4, label, 'node-text'));
+    return { cx: cx, cy: cy, w: w, topY: cy - hh, bottomY: cy + hh };
+  }
+
+  function bigRect(x, y, w, h, cls, lines) {
+    svg.appendChild(el('rect', { x: x, y: y, width: w, height: h, rx: 12 }, cls));
+    const midX = x + w / 2;
+    if (lines.length === 1) {
+      svg.appendChild(text(midX, y + h / 2 + 4, lines[0], 'node-text'));
+    } else {
+      svg.appendChild(text(midX, y + h / 2 - 3, lines[0], 'node-text'));
+      svg.appendChild(text(midX, y + h / 2 + 15, lines[1], 'edge-label'));
+    }
+  }
+
+  // --- Старт ---
+  let cursorY = 26;
+  const startW = 300, startH = 44;
+  bigRect(CX - startW / 2, cursorY, startW, startH, 'a-rect', ['Выбор направления для путешествия']);
+  const startBottomY = cursorY + startH;
+  const toggleAnchorY = startBottomY + 6;
+  const toggleAnchorX = CX + startW / 2;
+  cursorY = startBottomY + ARROW_LEN;
+  svg.appendChild(el('line', { x1: CX, y1: startBottomY, x2: CX, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  cursorY += 10;
+
+  function drawCascadeRow(n, title, options) {
+    svg.appendChild(text(CX, cursorY, n + '. ' + title, 'row-title'));
+    const nodesMeta = options.map(function (label) {
+      return { label: label, w: diamondWidthFor(label), h: DIAMOND_H, diamond: true };
+    });
+    nodesMeta.push({ label: 'любой', w: rectWidthFor('любой'), h: RECT_H, diamond: false });
+
+    const totalW = nodesMeta.reduce(function (s, m) { return s + m.w; }, 0) + NODE_GAP * (nodesMeta.length - 1);
+    const maxH = Math.max.apply(null, nodesMeta.map(function (m) { return m.h; }));
+    const rowMidY = cursorY + 16 + maxH / 2;
+
+    let x = CX - totalW / 2;
+    const nodes = [];
+    nodesMeta.forEach(function (m) {
+      const cxi = x + m.w / 2;
+      const node = m.diamond
+        ? drawDiamond(cxi, rowMidY, m.w, m.h, m.label)
+        : drawRectNode(cxi, rowMidY, m.w, m.h, m.label, 'a-rect-wild');
+      nodes.push(node);
+      x += m.w + NODE_GAP;
+    });
+
+    nodes.forEach(function (node, i) {
+      if (i === 0) return;
+      const prev = nodes[i - 1];
+      svg.appendChild(el('line', { x1: prev.cx + prev.w / 2 + 2, y1: rowMidY, x2: node.cx - node.w / 2 - 5, y2: rowMidY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+      svg.appendChild(text((prev.cx + prev.w / 2 + node.cx - node.w / 2) / 2, rowMidY - 8, 'нет', 'edge-label'));
+    });
+
+    const collectorY = rowMidY + maxH / 2 + STUB;
+    nodes.forEach(function (node) {
+      svg.appendChild(el('line', { x1: node.cx, y1: node.bottomY, x2: node.cx, y2: collectorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+    });
+    svg.appendChild(el('line', { x1: nodes[0].cx, y1: collectorY, x2: nodes[nodes.length - 1].cx, y2: collectorY }, 'trunk-bus'));
+
+    const nextY = collectorY + ARROW_LEN;
+    svg.appendChild(el('line', { x1: CX, y1: collectorY, x2: CX, y2: nextY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+    // Подпись стрелки сдвинута в сторону от самой линии, чтобы текст не наезжал на стрелку
+    svg.appendChild(text(CX + 16, collectorY + (nextY - collectorY) / 2 + 4, 'да → к следующей категории', 'edge-label-accent', 'start'));
+    cursorY = nextY + ROW_GAP_AFTER;
+  }
+
+  const CATEGORIES = [
+    { title: 'Бюджет', options: ['Эконом', 'Средний', 'Высокий', 'Люкс'] },
+    { title: 'Континент', options: ['Азия', 'Африка', 'Европа', 'С. Америка', 'Ю. Америка', 'Австр. / Океания', 'Антарктида'] },
+    { title: 'Тип отдыха', options: ['Пляжный', 'Экскурс.', 'Природный', 'Активный', 'Оздоров.'] },
+    { title: 'Время года', options: ['Весна', 'Лето', 'Осень', 'Зима'] },
+    { title: 'Продолжительность', options: ['Коротк.', 'Неделя', 'Долгая', 'Оч. долгая'] },
+    { title: 'Визовые предпочтения', options: ['Без визы', 'По прибытии', 'Заранее'] },
+    { title: 'Интересы', options: ['Гастрон.', 'Ночная жизнь', 'Семья', 'Романтика', 'Шоппинг'] }
+  ];
+  CATEGORIES.forEach(function (cat, i) { drawCascadeRow(i + 1, cat.title, cat.options); });
+
+  // --- Механизм вывода: 8-этапное ослабление условий (системные проверки, не вопросы) ---
+  svg.appendChild(text(CX, cursorY, 'Механизм вывода — поиск по базе знаний (213 направлений)', 'row-title'));
+  const relaxTop = cursorY + 16;
+  const RELAX = ['Все 7 критериев', '− интересы', '− длительн.', '− виза', '− сезон', '− тип отдыха', '− бюджет', 'Любое направление'];
+  {
+    const widths = RELAX.map(rectWidthFor);
+    const totalW = widths.reduce(function (a, b) { return a + b; }, 0) + NODE_GAP * (RELAX.length - 1);
+    let x = CX - totalW / 2;
+    const midY = relaxTop + RECT_H / 2;
+    let prev = null;
+    RELAX.forEach(function (label, i) {
+      const w = widths[i];
+      const cxi = x + w / 2;
+      const isLast = i === RELAX.length - 1;
+      const node = drawRectNode(cxi, midY, w, RECT_H, label, isLast ? 'a-rect-final' : 'a-rect-stage');
+      if (prev) {
+        svg.appendChild(el('line', { x1: prev.cx + prev.w / 2 + 2, y1: midY, x2: cxi - w / 2 - 5, y2: midY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+        svg.appendChild(text((prev.cx + prev.w / 2 + cxi - w / 2) / 2, midY - 8, '', 'edge-label'));
+      }
+      prev = node;
+      x += w + NODE_GAP;
+    });
+    cursorY = midY + RECT_H / 2 + ARROW_LEN;
+    svg.appendChild(el('line', { x1: CX, y1: midY + RECT_H / 2, x2: CX, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  }
+  cursorY += 6;
+
+  // --- Финальный выбор: правила / ИИ (это вопрос пользователю -> ромб) ---
+  const forkW = 190, forkH = 56;
+  const forkNode = drawDiamond(CX, cursorY + forkH / 2, forkW, forkH, 'Использовать ИИ?');
+  const forkBottom = forkNode.bottomY;
+  cursorY = forkBottom + 46;
+
+  const boxW = 300, boxH = 50, gapX = 60;
+  const rulesX = CX - gapX / 2 - boxW;
+  const aiX = CX + gapX / 2;
+
+  svg.appendChild(el('line', { x1: CX - 30, y1: forkBottom, x2: rulesX + boxW / 2, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+  svg.appendChild(text((CX - 30 + rulesX + boxW / 2) / 2 - 14, (forkBottom + cursorY) / 2 - 4, 'нет', 'edge-label'));
+  svg.appendChild(el('line', { x1: CX + 30, y1: forkBottom, x2: aiX + boxW / 2, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  svg.appendChild(text((CX + 30 + aiX + boxW / 2) / 2 + 14, (forkBottom + cursorY) / 2 - 4, 'да', 'edge-label-accent'));
+
+  bigRect(rulesX, cursorY, boxW, boxH, 'a-rect-rules', ['Экспертная система (правила)']);
+  bigRect(aiX, cursorY, boxW, boxH, 'a-rect-ai', ['ИИ-режим (офлайн)']);
+
+  const boxBottom = cursorY + boxH;
+  cursorY = boxBottom + ARROW_LEN;
+  svg.appendChild(el('line', { x1: rulesX + boxW / 2, y1: boxBottom, x2: CX - 4, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+  svg.appendChild(el('line', { x1: aiX + boxW / 2, y1: boxBottom, x2: CX + 4, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+
+  const mergeY = cursorY + 20;
+  svg.appendChild(el('line', { x1: CX, y1: cursorY, x2: CX, y2: mergeY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  cursorY = mergeY + 18;
+
+  // Примеры реальных результатов из базы знаний (не абстрактная заглушка, а то, что
+  // действительно может выдать движок). "Индонезия — Бали" - ромб и прямоугольник наложены
+  // друг на друга: это направление, которое реально выпало в тестовом прогоне ИИ-режима.
+  svg.appendChild(text(CX, cursorY, 'Примеры результатов из базы знаний (213 направлений)', 'row-title'));
+  const exTop = cursorY + 18;
+
+  function drawExampleNode(cx, cy, label, special) {
+    const w = Math.max(150, 20 + label.length * 7.4);
+    const h = 46;
+    if (!special) return drawRectNode(cx, cy, w, h, label, 'a-rect-final');
+
+    const dw = w + 46, dh = h + 34;
+    const hw = dw / 2, hh = dh / 2;
+    const points = [
+      cx + ',' + (cy - hh),
+      (cx + hw) + ',' + cy,
+      cx + ',' + (cy + hh),
+      (cx - hw) + ',' + cy
+    ].join(' ');
+    svg.appendChild(el('rect', { x: cx - w / 2, y: cy - h / 2, width: w, height: h, rx: 7 }, 'a-rect-overlay'));
+    svg.appendChild(el('polygon', { points: points }, 'q-diamond-overlay'));
+    svg.appendChild(text(cx, cy + 4, label, 'node-text'));
+    return { cx: cx, w: dw, topY: cy - hh, bottomY: cy + hh };
+  }
+
+  const EXAMPLES = [
+    { label: 'Индонезия — Бали', special: true },
+    { label: 'Канада — Банф', special: false },
+    { label: 'Мальдивы — Мале', special: false },
+    { label: 'Швейцария — Церматт', special: false }
+  ];
+  const exWidths = EXAMPLES.map(function (e) {
+    const baseW = Math.max(150, 20 + e.label.length * 7.4);
+    return e.special ? baseW + 46 : baseW;
+  });
+  const exMaxH = 80; // высота самого высокого элемента ряда (наложенный ромб)
+  const exMidY = exTop + exMaxH / 2;
+  const exTotalW = exWidths.reduce(function (a, b) { return a + b; }, 0) + NODE_GAP * (EXAMPLES.length - 1);
+  let ex = CX - exTotalW / 2;
+  EXAMPLES.forEach(function (e, i) {
+    const node = drawExampleNode(ex + exWidths[i] / 2, exMidY, e.label, e.special);
+    ex += exWidths[i] + NODE_GAP;
+  });
+  cursorY = exMidY + exMaxH / 2 + 20;
+
+  // Пунктир: состояние тумблера выбрано в начале, но учитывается только у финального ромба
+  const bypassX = W - 30;
+  const bp = el('path', {
+    d: 'M ' + toggleAnchorX + ' ' + toggleAnchorY +
+       ' L ' + bypassX + ' ' + toggleAnchorY +
+       ' L ' + bypassX + ' ' + forkNode.cy +
+       ' L ' + (CX + forkW / 2) + ' ' + forkNode.cy,
+    'marker-end': 'url(#arrow-soft)'
+  }, 'bypass');
+  svg.insertBefore(bp, svg.firstChild.nextSibling);
+
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (cursorY + 10));
+})();
+</script>
+</body>
+</html>

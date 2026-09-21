@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Виртуальное окружение
+env/
+venv/
+.venv/
+
+# База данных - генерируется приложением автоматически при первом запуске
+# (хранится в пользовательской папке данных, см. _user_data_dir() в main.py)
+MyProgram/travel_expert.db
+
+# PyInstaller
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db

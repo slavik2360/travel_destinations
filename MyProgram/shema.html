@@ -16,19 +16,19 @@
   }
   .node-text {
     fill: #12293c;
-    font: 600 11px Arial, sans-serif;
+    font: 600 13px Arial, sans-serif;
   }
   .row-title {
     fill: #4c6c82;
-    font: 700 12px Arial, sans-serif;
+    font: 700 14px Arial, sans-serif;
   }
   .edge-label {
     fill: #4c6c82;
-    font: 500 10px Arial, sans-serif;
+    font: 500 11px Arial, sans-serif;
   }
   .edge-label-accent {
     fill: #2189bd;
-    font: 700 10px Arial, sans-serif;
+    font: 700 11px Arial, sans-serif;
   }
 
   /* Ромб = вопрос (Да/Нет пользователю) */
@@ -106,7 +106,7 @@
 (function () {
   const SVG_NS = "http://www.w3.org/2000/svg";
   const svg = document.getElementById('diagram');
-  const W = 1180;
+  const W = 2150;
   const CX = W / 2;
   const DIAMOND_H = 56;
   const RECT_H = 36;
@@ -166,16 +166,58 @@
     }
   }
 
-  // --- Старт ---
-  let cursorY = 26;
-  const startW = 300, startH = 44;
-  bigRect(CX - startW / 2, cursorY, startW, startH, 'a-rect', ['Выбор направления для путешествия']);
-  const startBottomY = cursorY + startH;
-  const toggleAnchorY = startBottomY + 6;
-  const toggleAnchorX = CX + startW / 2;
-  cursorY = startBottomY + ARROW_LEN;
-  svg.appendChild(el('line', { x1: CX, y1: startBottomY, x2: CX, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
-  cursorY += 10;
+  // --- Входная развилка: решение использовать мастер подбора ---
+  let cursorY = 90;
+  const gateLabel = 'Хотели выбрать направление для путешествия?';
+  const gateW = diamondWidthFor(gateLabel);
+  const gateCY = cursorY + DIAMOND_H / 2;
+
+  // Ветка "нет" - считаем позиции заранее, чтобы нарисовать подложку до самих узлов
+  // (подложка должна быть ПОД узлами, то есть попасть в DOM раньше них)
+  const q2Label = 'Уже знаете, куда поедете?';
+  const q2W = diamondWidthFor(q2Label);
+  const q2CX = CX + gateW / 2 + 460;
+  const q2CY = gateCY;
+
+  const exit1Label = 'Хорошего пути!';
+  const exit1W = rectWidthFor(exit1Label);
+  const exit1CX = q2CX - 125;
+  const exitCY = q2CY + 130;
+
+  const exit2Label = 'Посмотрите, куда уже поехали другие';
+  const exit2W = rectWidthFor(exit2Label);
+  const exit2CX = q2CX + 150;
+
+  const branchPad = 30;
+  const branchLeft = Math.min(q2CX - q2W / 2, exit1CX - exit1W / 2) - branchPad;
+  const branchRight = Math.max(q2CX + q2W / 2, exit2CX + exit2W / 2) + branchPad;
+  const branchTop = q2CY - DIAMOND_H / 2 - branchPad - 22;
+  const branchBottom = exitCY + RECT_H / 2 + branchPad;
+  svg.appendChild(el('rect', {
+    x: branchLeft, y: branchTop, width: branchRight - branchLeft, height: branchBottom - branchTop, rx: 16
+  }, 'a-rect-wild'));
+  svg.appendChild(text((branchLeft + branchRight) / 2, branchTop + 24, 'Если подбор направления не нужен', 'row-title'));
+
+  // Сам узел входной развилки и стрелка "нет" к уточняющему вопросу
+  const gateNode = drawDiamond(CX, gateCY, gateW, DIAMOND_H, gateLabel);
+  svg.appendChild(el('line', { x1: gateNode.cx + gateW / 2, y1: gateNode.cy, x2: q2CX - q2W / 2, y2: q2CY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+  svg.appendChild(text((gateNode.cx + gateW / 2 + q2CX - q2W / 2) / 2, gateNode.cy - 10, 'нет', 'edge-label'));
+
+  const q2Node = drawDiamond(q2CX, q2CY, q2W, DIAMOND_H, q2Label);
+
+  svg.appendChild(el('line', { x1: q2CX - 14, y1: q2Node.bottomY, x2: exit1CX, y2: exitCY - RECT_H / 2 - 4, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+  svg.appendChild(text((q2CX - 14 + exit1CX) / 2 - 18, (q2Node.bottomY + exitCY) / 2, 'да', 'edge-label-accent'));
+  drawRectNode(exit1CX, exitCY, exit1W, RECT_H, exit1Label, 'a-rect-final');
+
+  svg.appendChild(el('line', { x1: q2CX + 14, y1: q2Node.bottomY, x2: exit2CX, y2: exitCY - RECT_H / 2 - 4, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
+  svg.appendChild(text((q2CX + 14 + exit2CX) / 2 + 18, (q2Node.bottomY + exitCY) / 2, 'нет', 'edge-label'));
+  drawRectNode(exit2CX, exitCY, exit2W, RECT_H, exit2Label, 'a-rect-final');
+
+  // Ветка "да" - ведёт сразу в каскад вопросов, без промежуточного блока
+  cursorY = gateNode.bottomY + ARROW_LEN;
+  svg.appendChild(el('line', { x1: CX, y1: gateNode.bottomY, x2: CX, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  svg.appendChild(text(CX + 14, gateNode.bottomY + (cursorY - gateNode.bottomY) / 2 + 4, 'да', 'edge-label-accent', 'start'));
+  cursorY += 14;
 
   function drawCascadeRow(n, title, options) {
     svg.appendChild(text(CX, cursorY, n + '. ' + title, 'row-title'));
@@ -233,7 +275,7 @@
   // --- Механизм вывода: 8-этапное ослабление условий (системные проверки, не вопросы) ---
   svg.appendChild(text(CX, cursorY, 'Механизм вывода — поиск по базе знаний (213 направлений)', 'row-title'));
   const relaxTop = cursorY + 16;
-  const RELAX = ['Все 7 критериев', '− интересы', '− длительн.', '− виза', '− сезон', '− тип отдыха', '− бюджет', 'Любое направление'];
+  const RELAX = ['Все 7 критериев', '− интересы', '− длительн.', '− виза', '− сезон', '− бюджет', '− континент', '− тип отдыха / любое'];
   {
     const widths = RELAX.map(rectWidthFor);
     const totalW = widths.reduce(function (a, b) { return a + b; }, 0) + NODE_GAP * (RELAX.length - 1);
@@ -257,32 +299,16 @@
   }
   cursorY += 6;
 
-  // --- Финальный выбор: правила / ИИ (это вопрос пользователю -> ромб) ---
-  const forkW = 190, forkH = 56;
-  const forkNode = drawDiamond(CX, cursorY + forkH / 2, forkW, forkH, 'Использовать ИИ?');
-  const forkBottom = forkNode.bottomY;
-  cursorY = forkBottom + 46;
-
-  const boxW = 300, boxH = 50, gapX = 60;
-  const rulesX = CX - gapX / 2 - boxW;
-  const aiX = CX + gapX / 2;
-
-  svg.appendChild(el('line', { x1: CX - 30, y1: forkBottom, x2: rulesX + boxW / 2, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
-  svg.appendChild(text((CX - 30 + rulesX + boxW / 2) / 2 - 14, (forkBottom + cursorY) / 2 - 4, 'нет', 'edge-label'));
-  svg.appendChild(el('line', { x1: CX + 30, y1: forkBottom, x2: aiX + boxW / 2, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
-  svg.appendChild(text((CX + 30 + aiX + boxW / 2) / 2 + 14, (forkBottom + cursorY) / 2 - 4, 'да', 'edge-label-accent'));
-
-  bigRect(rulesX, cursorY, boxW, boxH, 'a-rect-rules', ['Экспертная система (правила)']);
-  bigRect(aiX, cursorY, boxW, boxH, 'a-rect-ai', ['ИИ-режим (офлайн)']);
-
-  const boxBottom = cursorY + boxH;
-  cursorY = boxBottom + ARROW_LEN;
-  svg.appendChild(el('line', { x1: rulesX + boxW / 2, y1: boxBottom, x2: CX - 4, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
-  svg.appendChild(el('line', { x1: aiX + boxW / 2, y1: boxBottom, x2: CX + 4, y2: cursorY, 'marker-end': 'url(#arrow-soft)' }, 'edge'));
-
-  const mergeY = cursorY + 20;
-  svg.appendChild(el('line', { x1: CX, y1: cursorY, x2: CX, y2: mergeY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
-  cursorY = mergeY + 18;
+  // --- Результат: прямой переход от механизма вывода к результату (без выбора ИИ-режима -
+  // этот вопрос в текущей версии приложения пользователю не задаётся) ---
+  const resultLabel = 'Результат: направление + объяснение';
+  const resultW = Math.max(340, 40 + resultLabel.length * 7.2);
+  const resultH = 54;
+  bigRect(CX - resultW / 2, cursorY, resultW, resultH, 'a-rect-final', [resultLabel]);
+  const resultBottom = cursorY + resultH;
+  cursorY = resultBottom + ARROW_LEN;
+  svg.appendChild(el('line', { x1: CX, y1: resultBottom, x2: CX, y2: cursorY, 'marker-end': 'url(#arrow-accent)' }, 'trunk'));
+  cursorY += 18;
 
   // Примеры реальных результатов из базы знаний (не абстрактная заглушка, а то, что
   // действительно может выдать движок). "Индонезия — Бали" - ромб и прямоугольник наложены
@@ -328,17 +354,6 @@
     ex += exWidths[i] + NODE_GAP;
   });
   cursorY = exMidY + exMaxH / 2 + 20;
-
-  // Пунктир: состояние тумблера выбрано в начале, но учитывается только у финального ромба
-  const bypassX = W - 30;
-  const bp = el('path', {
-    d: 'M ' + toggleAnchorX + ' ' + toggleAnchorY +
-       ' L ' + bypassX + ' ' + toggleAnchorY +
-       ' L ' + bypassX + ' ' + forkNode.cy +
-       ' L ' + (CX + forkW / 2) + ' ' + forkNode.cy,
-    'marker-end': 'url(#arrow-soft)'
-  }, 'bypass');
-  svg.insertBefore(bp, svg.firstChild.nextSibling);
 
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (cursorY + 10));
 })();

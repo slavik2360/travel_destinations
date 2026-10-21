@@ -1429,6 +1429,12 @@ class DestinationImageLoader(QObject):
         url.setQuery(query)
 
         reply = self.manager.get(self._build_request(url))
+        # Без явного родителя и без одновременных конкурирующих запросов Python иногда успевал
+        # собрать Python-обёртку reply как мусор до завершения запроса (C++ объект ещё "летит"),
+        # что приводило к segfault при нескольких параллельных fetch() (см. экран "Посмотрите,
+        # куда уже поехали другие" с тремя одновременными загрузками фото). setParent привязывает
+        # время жизни reply к загрузчику и снимает проблему независимо от Python-рефкаунта.
+        reply.setParent(self)
         self._arm_timeout(reply)
         reply.finished.connect(
             lambda: self._on_exact_title_reply(reply, title, place, country, on_success, on_failure)
@@ -1486,6 +1492,12 @@ class DestinationImageLoader(QObject):
         url.setQuery(query)
 
         reply = self.manager.get(self._build_request(url))
+        # Без явного родителя и без одновременных конкурирующих запросов Python иногда успевал
+        # собрать Python-обёртку reply как мусор до завершения запроса (C++ объект ещё "летит"),
+        # что приводило к segfault при нескольких параллельных fetch() (см. экран "Посмотрите,
+        # куда уже поехали другие" с тремя одновременными загрузками фото). setParent привязывает
+        # время жизни reply к загрузчику и снимает проблему независимо от Python-рефкаунта.
+        reply.setParent(self)
         self._arm_timeout(reply)
         reply.finished.connect(lambda: self._on_search_reply(reply, on_success, on_failure))
 
@@ -1523,6 +1535,7 @@ class DestinationImageLoader(QObject):
 
     def _fetch_image_bytes(self, thumb_url, on_success, on_failure):
         img_reply = self.manager.get(self._build_request(QUrl(thumb_url)))
+        img_reply.setParent(self)
         self._arm_timeout(img_reply)
         img_reply.finished.connect(lambda: self._on_image_reply(img_reply, on_success, on_failure))
 
@@ -1698,6 +1711,7 @@ class QuestionWizard(QDialog):
         self.image_loader = DestinationImageLoader(self.network_manager, self)
         self._result_generation = 0
         self.result_icon_label = None
+        self._travelers_generation = 0
 
         self._pending_query = None
         self._dot_timer = None
@@ -1862,15 +1876,39 @@ class QuestionWizard(QDialog):
 
         self.layout.addSpacing(10)
 
+        self._travelers_generation += 1
+        gen = self._travelers_generation
+
         rows = self.db.list_all_destinations()
         sample = random.sample(rows, min(3, len(rows))) if rows else []
         for row in sample:
             country, city, description = row[8], row[9], row[10]
-            card = QLabel(f"<b>{country} — {city}</b><br>{description}")
-            card.setWordWrap(True)
-            card.setStyleSheet("font-size: 13px; padding: 10px; background-color: #dff2fb; border-radius: 8px;")
+
+            card = QWidget()
+            card.setStyleSheet("background-color: #dff2fb; border-radius: 10px;")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(0, 10, 0, 10)
+            card_layout.setSpacing(6)
+
+            photo = QLabel("🧳")
+            photo.setAlignment(Qt.AlignCenter)
+            photo.setStyleSheet("font-size: 40px;")
+            card_layout.addWidget(photo, 0, Qt.AlignHCenter)
+
+            text = QLabel(f"<b>{country} — {city}</b><br>{description}")
+            text.setWordWrap(True)
+            text.setAlignment(Qt.AlignCenter)
+            text.setStyleSheet("font-size: 13px; padding: 0 12px;")
+            card_layout.addWidget(text)
+
             self.layout.addWidget(card)
             self.layout.addSpacing(6)
+
+            self.image_loader.fetch(
+                country, city,
+                on_success=lambda pixmap, g=gen, lbl=photo: self._on_traveler_photo_loaded(g, lbl, pixmap),
+                on_failure=lambda: None,  # остаётся эмодзи-иконка
+            )
 
         self.layout.addSpacing(8)
 
@@ -2213,6 +2251,17 @@ class QuestionWizard(QDialog):
             label.setStyleSheet("")  # снимаем стиль #icon (font-size 60px) - теперь тут картинка
         except RuntimeError:
             pass  # виджет результата успели уничтожить (перезапуск/закрытие окна)
+
+    def _on_traveler_photo_loaded(self, generation, label, pixmap):
+        if generation != self._travelers_generation:
+            return  # пользователь уже ушёл с этого экрана - карточка больше не актуальна
+        try:
+            scaled = pixmap.scaled(480, 150, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            label.setPixmap(self._rounded_pixmap(scaled, radius=10))
+            label.setFixedSize(scaled.size())
+            label.setStyleSheet("")
+        except RuntimeError:
+            pass  # карточка успела быть уничтожена (переход на другой экран)
 
     @staticmethod
     def _rounded_pixmap(pixmap, radius=16):

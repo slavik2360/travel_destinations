@@ -32,6 +32,7 @@ const state = {
   wizard: null,
   lastResult: null,
   kbFilter: "",
+  travelersSample: null,
 };
 
 function freshWizard() {
@@ -146,8 +147,12 @@ function renderTravelers() {
   for (let i = 0; i < 3 && pool.length; i++) {
     sample.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   }
-  const cards = sample.map((d) => `
-    <div class="card"><b>${escapeHtml(d.country)} — ${escapeHtml(d.city)}</b><br>${escapeHtml(d.description)}</div>
+  state.travelersSample = sample;
+  const cards = sample.map((d, i) => `
+    <div class="card">
+      <div class="icon-xl" id="traveler-icon-${i}" style="font-size:40px;margin-bottom:6px;">🧳</div>
+      <b>${escapeHtml(d.country)} — ${escapeHtml(d.city)}</b><br>${escapeHtml(d.description)}
+    </div>
   `).join("");
   return `
     <h1 class="title">Посмотрите, куда уже поехали другие</h1>
@@ -165,6 +170,20 @@ function wireTravelers() {
   });
   document.getElementById("menu-btn").addEventListener("click", () => { state.screen = "menu"; render(); });
   document.getElementById("back-btn").addEventListener("click", () => { state.screen = "known"; render(); });
+
+  const sample = state.travelersSample || [];
+  sample.forEach((d, i) => {
+    fetchDestinationImageUrl(d.country, d.city).then((url) => {
+      if (!url || state.travelersSample !== sample) return;
+      const holder = document.getElementById(`traveler-icon-${i}`);
+      if (!holder) return;
+      const img = new Image();
+      img.onload = () => { holder.innerHTML = ""; holder.appendChild(img); };
+      img.src = url;
+      img.alt = `${d.country} — ${d.city}`;
+      img.style.maxHeight = "160px";
+    });
+  });
 }
 
 // ---------------- Мастер вопросов ----------------

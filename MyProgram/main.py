@@ -1730,13 +1730,171 @@ class QuestionWizard(QDialog):
         self.layout.setSpacing(16)
         content_widget.setLayout(self.layout)
 
-        self.build_question_ui()
         self.load_options_cache()
-        self.show_question()
+        self.show_intro_gate()
 
     def load_options_cache(self):
         for code, _, table in self.CATEGORIES:
             self.options_cache[code] = self.db.get_lookup(table)
+
+    # -------- Входная развилка (см. MyProgram/shema.html): нужен ли вообще подбор --------
+
+    def show_intro_gate(self):
+        """Первый экран мастера: пользователь вообще хочет, чтобы систему подбирала направление?"""
+        self.clear_layout(self.layout)
+        self.layout.addStretch()
+
+        icon = QLabel("✈️")
+        icon.setObjectName("icon")
+        icon.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(icon)
+
+        question = QLabel("Хотели выбрать направление для путешествия?")
+        question.setAlignment(Qt.AlignCenter)
+        question.setWordWrap(True)
+        question.setStyleSheet("font-size: 19px; font-weight: 600;")
+        self.layout.addWidget(question)
+
+        self.layout.addSpacing(14)
+
+        row = QHBoxLayout()
+        no_btn = QPushButton("Нет")
+        no_btn.setObjectName("noButton")
+        no_btn.clicked.connect(self.show_intro_known)
+        yes_btn = QPushButton("Да")
+        yes_btn.clicked.connect(self.begin_main_flow)
+        row.addWidget(no_btn)
+        row.addWidget(yes_btn)
+        self.layout.addLayout(row)
+
+        self.layout.addStretch()
+
+    def show_intro_known(self):
+        """Ветка 'нет': уточняем, не нужна ли помощь по другой причине - человек мог уже определиться сам."""
+        self.clear_layout(self.layout)
+        self.layout.addStretch()
+
+        icon = QLabel("🤔")
+        icon.setObjectName("icon")
+        icon.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(icon)
+
+        question = QLabel("Уже знаете, куда поедете?")
+        question.setAlignment(Qt.AlignCenter)
+        question.setWordWrap(True)
+        question.setStyleSheet("font-size: 19px; font-weight: 600;")
+        self.layout.addWidget(question)
+
+        self.layout.addSpacing(14)
+
+        row = QHBoxLayout()
+        no_btn = QPushButton("Нет")
+        no_btn.setObjectName("noButton")
+        no_btn.clicked.connect(self.show_other_travelers)
+        yes_btn = QPushButton("Да")
+        yes_btn.clicked.connect(self.show_farewell)
+        row.addWidget(no_btn)
+        row.addWidget(yes_btn)
+        self.layout.addLayout(row)
+
+        self.layout.addSpacing(8)
+
+        back_btn = QPushButton("← Назад")
+        back_btn.setObjectName("secondary")
+        back_btn.clicked.connect(self.show_intro_gate)
+        self.layout.addWidget(back_btn)
+
+        self.layout.addStretch()
+
+    def show_farewell(self):
+        """Ветка 'да/да': человек уже знает направление - просто прощаемся."""
+        self.clear_layout(self.layout)
+        self.layout.addStretch()
+
+        icon = QLabel("👋")
+        icon.setObjectName("icon")
+        icon.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(icon)
+
+        title = QLabel("Хорошего пути!")
+        title.setObjectName("title")
+        title.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(title)
+
+        subtitle = QLabel("Возвращайтесь, если понадобится помощь с выбором следующего направления.")
+        subtitle.setObjectName("subtitle")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setWordWrap(True)
+        self.layout.addWidget(subtitle)
+
+        self.layout.addSpacing(14)
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.accept)
+        self.layout.addWidget(close_btn)
+
+        back_btn = QPushButton("← Назад")
+        back_btn.setObjectName("secondary")
+        back_btn.clicked.connect(self.show_intro_known)
+        self.layout.addWidget(back_btn)
+
+        self.layout.addStretch()
+
+    def show_other_travelers(self):
+        """
+        Ветка 'да/нет': человек не знает направление, но и подбор не хочет - явное противоречие.
+        Вместо того чтобы просто попрощаться, показываем реальные направления из базы знаний
+        (как "примеры результатов" на схеме) и предлагаем всё-таки попробовать подбор.
+        """
+        self.clear_layout(self.layout)
+
+        title = QLabel("Посмотрите, куда уже поехали другие")
+        title.setObjectName("title")
+        title.setAlignment(Qt.AlignCenter)
+        title.setWordWrap(True)
+        self.layout.addWidget(title)
+
+        subtitle = QLabel("Реальные направления из базы знаний — возможно, одно из них приглянется и вам.")
+        subtitle.setObjectName("subtitle")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setWordWrap(True)
+        self.layout.addWidget(subtitle)
+
+        self.layout.addSpacing(10)
+
+        rows = self.db.list_all_destinations()
+        sample = random.sample(rows, min(3, len(rows))) if rows else []
+        for row in sample:
+            country, city, description = row[8], row[9], row[10]
+            card = QLabel(f"<b>{country} — {city}</b><br>{description}")
+            card.setWordWrap(True)
+            card.setStyleSheet("font-size: 13px; padding: 10px; background-color: #dff2fb; border-radius: 8px;")
+            self.layout.addWidget(card)
+            self.layout.addSpacing(6)
+
+        self.layout.addSpacing(8)
+
+        try_btn = QPushButton("Всё-таки попробовать подбор")
+        try_btn.clicked.connect(self.begin_main_flow)
+        self.layout.addWidget(try_btn)
+
+        close_btn = QPushButton("Закрыть")
+        close_btn.setObjectName("noButton")
+        close_btn.clicked.connect(self.accept)
+        self.layout.addWidget(close_btn)
+
+        back_btn = QPushButton("← Назад")
+        back_btn.setObjectName("secondary")
+        back_btn.clicked.connect(self.show_intro_known)
+        self.layout.addWidget(back_btn)
+
+        self.layout.addStretch()
+
+    def begin_main_flow(self):
+        """Ветка 'да' входной развилки: переходим в уже существующую цепочку вопросов."""
+        self.clear_layout(self.layout)
+        self.build_question_ui()
+        self.show_question()
 
     def build_question_ui(self):
         """Наполняет self.layout виджетами экрана вопроса. Layout создаётся только один раз в __init__."""
@@ -2142,10 +2300,7 @@ class QuestionWizard(QDialog):
         self.cat_index = 0
         self.opt_index = 0
         self.history_stack = []
-        # Очищаем self.layout и наполняем его заново — сам объект layout остаётся прежним
-        self.clear_layout(self.layout)
-        self.build_question_ui()
-        self.show_question()
+        self.begin_main_flow()
 
     def closeEvent(self, event):
         self._stop_timers()

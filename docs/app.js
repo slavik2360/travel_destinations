@@ -42,8 +42,16 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-const SCREEN_RENDERERS = { menu: renderMenu, wizard: renderWizard, thinking: renderThinking, result: renderResult, explanation: renderExplanation, history: renderHistory, kb: renderKb };
-const SCREEN_WIRERS = { menu: wireMenu, wizard: wireWizard, thinking: wireThinking, result: wireResult, explanation: wireExplanation, history: wireHistory, kb: wireKb };
+const SCREEN_RENDERERS = {
+  menu: renderMenu, gate: renderGate, known: renderKnown, farewell: renderFarewell, travelers: renderTravelers,
+  wizard: renderWizard, thinking: renderThinking, result: renderResult, explanation: renderExplanation,
+  history: renderHistory, kb: renderKb,
+};
+const SCREEN_WIRERS = {
+  menu: wireMenu, gate: wireGate, known: wireKnown, farewell: wireFarewell, travelers: wireTravelers,
+  wizard: wireWizard, thinking: wireThinking, result: wireResult, explanation: wireExplanation,
+  history: wireHistory, kb: wireKb,
+};
 
 function render() {
   root.innerHTML = SCREEN_RENDERERS[state.screen]();
@@ -74,12 +82,89 @@ function wireMenu() {
     state.useAi = e.target.checked;
     render();
   });
-  document.getElementById("start-btn").addEventListener("click", () => {
+  document.getElementById("start-btn").addEventListener("click", () => { state.screen = "gate"; render(); });
+  document.getElementById("history-btn").addEventListener("click", () => { state.screen = "history"; render(); });
+  document.getElementById("kb-btn").addEventListener("click", () => { state.screen = "kb"; render(); });
+}
+
+// ---------------- Входная развилка (см. MyProgram/shema.html) ----------------
+function renderGate() {
+  return `
+    <div class="icon-xl">✈️</div>
+    <div class="question-box"><div class="q-text">Хотели выбрать направление для путешествия?</div></div>
+    <div class="row">
+      <button class="btn no" id="no-btn">Нет</button>
+      <button class="btn" id="yes-btn">Да</button>
+    </div>
+  `;
+}
+function wireGate() {
+  document.getElementById("yes-btn").addEventListener("click", () => {
     state.wizard = freshWizard();
     enterWizardScreen();
   });
-  document.getElementById("history-btn").addEventListener("click", () => { state.screen = "history"; render(); });
-  document.getElementById("kb-btn").addEventListener("click", () => { state.screen = "kb"; render(); });
+  document.getElementById("no-btn").addEventListener("click", () => { state.screen = "known"; render(); });
+}
+
+function renderKnown() {
+  return `
+    <div class="icon-xl">🤔</div>
+    <div class="question-box"><div class="q-text">Уже знаете, куда поедете?</div></div>
+    <div class="row">
+      <button class="btn no" id="no-btn">Нет</button>
+      <button class="btn" id="yes-btn">Да</button>
+    </div>
+    <button class="btn secondary" id="back-btn">← Назад</button>
+  `;
+}
+function wireKnown() {
+  document.getElementById("yes-btn").addEventListener("click", () => { state.screen = "farewell"; render(); });
+  document.getElementById("no-btn").addEventListener("click", () => { state.screen = "travelers"; render(); });
+  document.getElementById("back-btn").addEventListener("click", () => { state.screen = "gate"; render(); });
+}
+
+function renderFarewell() {
+  return `
+    <div class="icon-xl">👋</div>
+    <h1 class="title">Хорошего пути!</h1>
+    <p class="subtitle">Возвращайтесь, если понадобится помощь с выбором следующего направления.</p>
+    <button class="btn" id="menu-btn">Закрыть</button>
+    <button class="btn secondary" id="back-btn">← Назад</button>
+  `;
+}
+function wireFarewell() {
+  document.getElementById("menu-btn").addEventListener("click", () => { state.screen = "menu"; render(); });
+  document.getElementById("back-btn").addEventListener("click", () => { state.screen = "known"; render(); });
+}
+
+// Ветка "да/нет": человек не знает направление, но и подбор не хочет - явное противоречие.
+// Вместо того чтобы просто попрощаться, показываем реальные направления из базы знаний
+// (как "примеры результатов" на схеме) и предлагаем всё-таки попробовать подбор.
+function renderTravelers() {
+  const pool = loadDestinations().slice();
+  const sample = [];
+  for (let i = 0; i < 3 && pool.length; i++) {
+    sample.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  const cards = sample.map((d) => `
+    <div class="card"><b>${escapeHtml(d.country)} — ${escapeHtml(d.city)}</b><br>${escapeHtml(d.description)}</div>
+  `).join("");
+  return `
+    <h1 class="title">Посмотрите, куда уже поехали другие</h1>
+    <p class="subtitle">Реальные направления из базы знаний — возможно, одно из них приглянется и вам.</p>
+    ${cards}
+    <button class="btn" id="try-btn">Всё-таки попробовать подбор</button>
+    <button class="btn no" id="menu-btn">Закрыть</button>
+    <button class="btn secondary" id="back-btn">← Назад</button>
+  `;
+}
+function wireTravelers() {
+  document.getElementById("try-btn").addEventListener("click", () => {
+    state.wizard = freshWizard();
+    enterWizardScreen();
+  });
+  document.getElementById("menu-btn").addEventListener("click", () => { state.screen = "menu"; render(); });
+  document.getElementById("back-btn").addEventListener("click", () => { state.screen = "known"; render(); });
 }
 
 // ---------------- Мастер вопросов ----------------

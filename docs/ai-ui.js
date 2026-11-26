@@ -12,6 +12,12 @@ export function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/** Текст ошибки для чата: без технических подробностей о подключении. */
+function chatErrorText(message) {
+  if (/^Нет связи/.test(message)) return "Нет связи с интернетом. Проверьте подключение и повторите.";
+  return "Консультант сейчас занят. Попробуйте ещё раз через минуту.";
+}
+
 /** Минимальный Markdown поверх уже экранированного текста: заголовки, списки, жирный, код. */
 export function renderMarkdown(source) {
   const inline = (s) => s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -231,10 +237,12 @@ export function createAiScreens(ctx) {
             (piece) => { answer += piece; frame ||= requestAnimationFrame(paint); },
             abort.signal,
           );
-          if (truncated) errorEl.textContent = "Ответ обрезан: модель достигла предела длины. Попросите продолжить.";
+          if (truncated) errorEl.textContent = "Ответ получился длинным. Напишите «продолжи», и я допишу.";
         }
       } catch (e) {
-        if (!abort.signal.aborted) errorEl.textContent = e.message;
+        // В чате - только нейтральный текст от имени консультанта. Подробная причина видна
+        // в настройках («Проверить подключение») и в консоли браузера.
+        if (!abort.signal.aborted) { console.warn("[консультант]", e.message); errorEl.textContent = chatErrorText(e.message); }
       }
       cancelAnimationFrame(frame);
       if (chatAbort === abort) chatAbort = null;

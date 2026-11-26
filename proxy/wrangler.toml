@@ -3,7 +3,7 @@ main = "worker.js"
 compatibility_date = "2026-11-01"
 
 [vars]
-# Режим ИИ: "1" или "2" (см. PROVIDERS в worker.js).
+# Режим ИИ: "1", "2" или "3" (см. PROVIDERS в worker.js).
 PROVIDER = "2"
 # Сайты, которым разрешено обращаться к прокси из браузера (через запятую).
 ALLOWED_ORIGINS = "https://slavik2360.github.io"

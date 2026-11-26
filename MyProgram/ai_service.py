@@ -23,7 +23,7 @@ from PyQt5.QtNetwork import QNetworkReply, QNetworkRequest
 ############ НАСТРОЙКИ #############
 ####################################
 
-# Режимы ИИ. Оба сервиса понимают один и тот же формат запросов, отличаются адрес, модель и ключ.
+# Режимы ИИ. Все сервисы понимают один и тот же формат запросов, отличаются адрес, модель и ключ.
 # Ключ каждого режима хранится отдельно и уходит только на адрес своего режима.
 PROVIDERS = {
     1: {"base_url": "https://api.openai.com/v1", "model": "gpt-6-luna",
@@ -31,6 +31,9 @@ PROVIDERS = {
     2: {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-3.5-flash-lite",
         "fallbacks": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"],
         "key": "api_key_2", "env": "GEMINI_API_KEY"},
+    3: {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b",
+        "fallbacks": ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"],
+        "key": "api_key_3", "env": "GROQ_API_KEY"},
 }
 
 # Перегрузка сервиса (503 и похожее) обычно проходит за секунды, поэтому запрос повторяется сам:
@@ -98,6 +101,7 @@ class AISettings:
         "provider": DEFAULT_PROVIDER,
         "api_key": "",    # ключ режима 1
         "api_key_2": "",  # ключ режима 2
+        "api_key_3": "",  # ключ режима 3
         "base_url": "",  # свой сервер вместо адреса режима
         "departure_city": "Алматы",
         "citizenship": "Казахстан",

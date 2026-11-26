@@ -6,6 +6,7 @@ Markdown с вырезанными картинками и экранирова�
 """
 
 import re
+import sys
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtNetwork import QNetworkAccessManager
@@ -46,6 +47,13 @@ class AIContext:
 
     def new_client(self, parent):
         return ChatClient(self.settings, self.manager, parent)
+
+
+def chat_error_text(message):
+    """Текст ошибки для чата: без технических подробностей о подключении."""
+    if message.startswith("Нет связи"):
+        return "Нет связи с интернетом. Проверьте подключение и повторите."
+    return "Консультант сейчас занят. Попробуйте ещё раз через минуту."
 
 
 def plain_label(text, style="", align=None):
@@ -633,11 +641,14 @@ class AIConsultantWindow(QDialog):
 
     def _on_done(self, _text, truncated):
         if truncated:
-            self._show_error("Ответ обрезан: модель достигла предела длины. Попросите продолжить.")
+            self._show_error("Ответ получился длинным. Напишите «продолжи», и я допишу.")
         self._commit()
 
     def _on_error(self, message, _partial):
-        self._show_error(message)
+        # В чате - только нейтральный текст от имени консультанта. Подробная причина видна
+        # в настройках («Проверить подключение») и в консоли.
+        print("[консультант]", message, file=sys.stderr)
+        self._show_error(chat_error_text(message))
         self._commit()
 
     def stop(self):

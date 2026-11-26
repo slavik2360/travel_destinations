@@ -10,7 +10,7 @@ const API_KEY = "travel_expert_ai_key_v1";
 const RATE_KEY = "travel_expert_usd_kzt_v1";
 const CHAT_KEY = "travel_expert_chat_v1";
 
-// Режимы ИИ. Оба сервиса понимают один формат запросов, отличаются адрес, модель и ключ. Ключ каждого
+// Режимы ИИ. Все сервисы понимают один формат запросов, отличаются адрес, модель и ключ. Ключ каждого
 // режима хранится отдельно и уходит только на адрес своего режима.
 export const PROVIDERS = {
   1: { baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", fallbacks: [] },
@@ -18,6 +18,7 @@ export const PROVIDERS = {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-3.5-flash-lite",
     fallbacks: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"],
   },
+  3: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", fallbacks: ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"] },
 };
 // Перегрузка сервиса (503 и похожее) обычно проходит за секунды, поэтому запрос повторяется сам:
 // та же модель, затем запасные по очереди. У запасных свои лимиты, поэтому они выручают и при 429.

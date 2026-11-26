@@ -9,7 +9,7 @@
 ```bash
 cd proxy
 npx wrangler login
-npx wrangler secret put AI_API_KEY_2   # ключ режима 2 (для режима 1 - AI_API_KEY_1)
+npx wrangler secret put AI_API_KEY_2   # ключ режима 2 (для режима 1 - AI_API_KEY_1, для 3 - AI_API_KEY_3)
 npx wrangler deploy                  # в ответ придёт адрес вида https://travel-ai.<имя>.workers.dev
 ```
 

@@ -13,6 +13,10 @@ const PROVIDERS = {
     model: "gemini-3.5-flash-lite",
     fallbacks: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"], secret: "AI_API_KEY_2",
   },
+  3: {
+    url: "https://api.groq.com/openai/v1/chat/completions", model: "openai/gpt-oss-120b",
+    fallbacks: ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"], secret: "AI_API_KEY_3",
+  },
 };
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGES = 60;

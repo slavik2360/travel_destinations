@@ -31,6 +31,10 @@ export function addHistoryEntry(entry) {
   list.unshift(entry);
   writeJSON(HISTORY_KEY, list);
 }
+/** Обновляет запись после уточнения у ИИ (entry.id выдаётся при создании). */
+export function updateHistoryEntry(id, changes) {
+  writeJSON(HISTORY_KEY, getHistory().map((h) => (h.id === id ? { ...h, ...changes } : h)));
+}
 export function clearHistory() {
   writeJSON(HISTORY_KEY, []);
 }

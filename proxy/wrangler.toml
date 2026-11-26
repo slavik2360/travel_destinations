@@ -1,0 +1,15 @@
+name = "travel-ai"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+# Режим ИИ: "1" или "2" (см. PROVIDERS в worker.js).
+PROVIDER = "2"
+# Сайты, которым разрешено обращаться к прокси из браузера (через запятую).
+ALLOWED_ORIGINS = "https://slavik2360.github.io"
+
+# Не больше 10 запросов в минуту с одного IP.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }

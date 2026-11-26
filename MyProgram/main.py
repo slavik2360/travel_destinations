@@ -21,6 +21,12 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
+from ai_service import format_usd
+from smart_engine import (
+    SmartEngine, compare_with_query, count_matches, empty_filters, estimate_cost, parse_wish,
+)
+from ai_windows import AIConsultantWindow, AIContext, AIMenuWindow, CostCard, plain_label
+
 def _user_data_dir():
     """
     Папка для хранения базы знаний/истории, устойчивая к способу запуска приложения.
@@ -129,6 +135,12 @@ for _names, _label in (
     (SEASON_NAMES, "любой"), (DURATION_NAMES, "любая"), (VISA_NAMES, "любой"), (INTEREST_NAMES, "любой"),
 ):
     _names["any"] = _label
+
+# Ключи совпадают с QuestionWizard.CATEGORIES и smart_engine.CRITERIA.
+QUERY_NAMES = {
+    "budget": BUDGET_NAMES, "continent": CONTINENT_NAMES, "rest_type": REST_TYPE_NAMES,
+    "season": SEASON_NAMES, "duration": DURATION_NAMES, "visa": VISA_NAMES, "interest": INTEREST_NAMES,
+}
 
 # (budget, continent, type, season, страна, город, описание) - исходный набор без новых 3 измерений,
 # они достраиваются функцией _build_destinations() ниже (см. TAG_OVERRIDES и _EXTRA_DESTINATIONS)
@@ -739,6 +751,13 @@ class Database:
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dt TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL
+            );
         """)
         self.conn.commit()
 
@@ -760,6 +779,8 @@ class Database:
         for col in ("duration", "visa", "interest"):
             if col not in hist_cols:
                 cur.execute(f"ALTER TABLE history ADD COLUMN {col} TEXT NOT NULL DEFAULT 'any'")
+        if "cost_usd" not in hist_cols:
+            cur.execute("ALTER TABLE history ADD COLUMN cost_usd REAL")  # NULL - сумма не считалась
 
         self.conn.commit()
 
@@ -866,6 +887,11 @@ class Database:
     # направления в БД всегда конкретны - там строк со значением 'any' не бывает.
     _WILDCARD_COLUMNS = {"season_code", "duration_code", "visa_code", "interest_code"}
 
+    DESTINATION_COLUMNS = (
+        "id", "budget_code", "continent_code", "type_code", "season_code",
+        "duration_code", "visa_code", "interest_code", "country", "city", "description",
+    )
+
     def find_relaxed(self, budget, continent, rest_type, season, duration="any", visa="any", interest="any"):
         """
         Механизм ослабления условий экспертной системы: последовательно убираем самые
@@ -910,8 +936,10 @@ class Database:
             else:
                 stage_desc = "Без учёта: " + ", ".join(dropped)
 
-            cur.execute(f"SELECT country, city, description FROM destinations WHERE {where_sql}", params)
-            res = cur.fetchall()
+            cur.execute(
+                f"SELECT {', '.join(self.DESTINATION_COLUMNS)} FROM destinations WHERE {where_sql}", params
+            )
+            res = [dict(zip(self.DESTINATION_COLUMNS, row)) for row in cur.fetchall()]
             trace.append({"stage": stage_desc, "count": len(res), "success": bool(res)})
             if res:
                 return res, dropped, trace
@@ -919,28 +947,55 @@ class Database:
         return res, dropped, trace
 
     def save_history(self, budget, continent, rest_type, season, duration, visa, interest,
-                      use_ai, country, city):
+                      use_ai, country, city, cost_usd=None):
+        """Возвращает id записи: после уточнения у ИИ она обновляется (см. update_history_result)."""
         cur = self.conn.cursor()
         cur.execute(
             "INSERT INTO history (dt, budget, continent, rest_type, season, duration, visa, interest, "
-            "use_ai, country, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "use_ai, country, city, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 budget, continent, rest_type, season, duration, visa, interest,
-                int(use_ai), country, city,
+                int(use_ai), country, city, cost_usd,
             ),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_history_result(self, history_id, country, city, cost_usd):
+        self.conn.execute(
+            "UPDATE history SET country = ?, city = ?, cost_usd = ? WHERE id = ?",
+            (country, city, cost_usd, history_id),
         )
         self.conn.commit()
 
     def get_history(self):
         cur = self.conn.cursor()
         cur.execute("SELECT dt, budget, continent, rest_type, season, duration, visa, interest, "
-                     "use_ai, country, city FROM history ORDER BY id DESC")
+                     "use_ai, country, city, cost_usd FROM history ORDER BY id DESC")
         return cur.fetchall()
 
     def clear_history(self):
         cur = self.conn.cursor()
         cur.execute("DELETE FROM history")
+        self.conn.commit()
+
+    # ----- переписка с ИИ-консультантом -----
+
+    def get_chat_messages(self):
+        cur = self.conn.cursor()
+        cur.execute("SELECT role, content FROM chat_messages ORDER BY id")
+        return cur.fetchall()
+
+    def add_chat_message(self, role, content):
+        self.conn.execute(
+            "INSERT INTO chat_messages (dt, role, content) VALUES (?, ?, ?)",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), role, content),
+        )
+        self.conn.commit()
+
+    def clear_chat(self):
+        self.conn.execute("DELETE FROM chat_messages")
         self.conn.commit()
 
     def add_destination(self, budget, continent, rest_type, season, duration, visa, interest,
@@ -961,12 +1016,11 @@ class Database:
 
     def list_all_destinations(self):
         cur = self.conn.cursor()
-        cur.execute(
-            "SELECT id, budget_code, continent_code, type_code, season_code, "
-            "duration_code, visa_code, interest_code, country, city, description "
-            "FROM destinations ORDER BY id"
-        )
+        cur.execute(f"SELECT {', '.join(self.DESTINATION_COLUMNS)} FROM destinations ORDER BY id")
         return cur.fetchall()
+
+    def list_destination_dicts(self):
+        return [dict(zip(self.DESTINATION_COLUMNS, row)) for row in self.list_all_destinations()]
 
 
 ####################################
@@ -1016,113 +1070,16 @@ class RecommendationEngine:
 
     def recommend(self, budget, continent, rest_type, season, duration="any", visa="any", interest="any"):
         rows, relaxed, trace = self.db.find_relaxed(budget, continent, rest_type, season, duration, visa, interest)
-        country, city, description = random.choice(rows)
+        dest = random.choice(rows)
 
         return {
-            "country": country,
-            "city": city,
-            "description": description,
+            "country": dest["country"],
+            "city": dest["city"],
+            "description": dest["description"],
+            "destination": dest,
+            "source": "rules",
             "reasoning": self._reasoning(relaxed),
             "mode": "🧭 Экспертная система (правила)",
-            "trace": trace,
-            "relaxed": relaxed,
-        }
-
-
-class AISimulatedEngine:
-    """
-    Имитация ИИ-режима: работает офлайн поверх той же базы знаний, но оценивает варианты
-    по «схожести» и оформляет ответ в разговорном стиле с псевдо-уверенностью.
-
-    В отличие от простого шаблона, фразы реально ссылаются на конкретные ответы пользователя
-    (бюджет/континент/тип/интерес и т.д.), поэтому для разных комбинаций ответов текст выглядит
-    заметно по-разному, а не одинаковой "рыбой" со вставленным только названием направления.
-    """
-
-    PHRASES_INTRO = [
-        "Проанализировав ваши ответы (бюджет «{budget}», регион «{continent}», формат «{type}»), рекомендую",
-        "Учитывая формат отдыха «{type}» и интерес «{interest}», лучший вариант для вас —",
-        "Сопоставив регион «{continent}» и бюджет «{budget}», я бы выбрал",
-        "Если коротко: для формата «{type}» и продолжительности «{duration}» подойдёт",
-        "Судя по вашему выбору («{type}», интерес «{interest}»), предлагаю",
-        "Мои расчёты по базе направлений показывают: для региона «{continent}» и бюджета «{budget}» оптимален вариант",
-        "С учётом визового предпочтения «{visa}» и сезона «{season}» больше всего подойдёт",
-        "Взвесив все семь критериев вашего ответа, я склоняюсь к тому, что вам понравится",
-        "Прогнал вашу анкету через базу направлений: для «{type}» на срок «{duration}» лучше всего подходит",
-        "Комбинация «{continent}» + «{type}» + бюджет «{budget}» однозначно указывает на",
-        "Если ориентироваться на интерес «{interest}» и сезон «{season}», больше всего впечатлит",
-        "Не самая очевидная связка ответов, но по базе направлений уверенно выделяется вариант",
-    ]
-
-    NOTES_PERFECT = [
-        " Все указанные вами критерии совпали полностью — это точное попадание.",
-        " Совпадение полное: направление отвечает всем семи критериям сразу.",
-        " Редкий случай, когда ничего не пришлось подгонять — всё сошлось само.",
-    ]
-    NOTES_MINOR = [
-        " Почти идеально: пришлось не учитывать только {relaxed}, остальное совпало.",
-        " Совпадение очень хорошее — скорректировал только {relaxed}.",
-        " Практически в точку, разве что {relaxed} пришлось вынести за скобки.",
-    ]
-    NOTES_MODERATE = [
-        " Пришлось скорректировать несколько пунктов ({relaxed}), но направление остаётся близким к запросу.",
-        " Не всё совпало идеально (без учёта: {relaxed}), но это лучшее, что нашлось в базе.",
-        " Компромисс есть, и он в {relaxed} — в остальном вариант вполне рабочий.",
-    ]
-    NOTES_MAJOR = [
-        " Честно говоря, точного варианта под все ваши критерии в базе не нашлось — пришлось ослабить почти всё "
-        "({relaxed}), так что воспринимайте это как ориентир, а не идеальное совпадение.",
-        " Ваша комбинация ответов оказалась довольно редкой: пришлось отступить от {relaxed}, "
-        "чтобы вообще что-то предложить.",
-        " Тут я скорее развожу руками: критериев, от которых пришлось отказаться ({relaxed}), "
-        "многовато, но и совсем без ответа оставить вас не могу.",
-    ]
-
-    def __init__(self, db: Database):
-        self.db = db
-
-    def _closing_note(self, relaxed):
-        relaxed_str = ", ".join(relaxed)
-        n = len(relaxed)
-        if n == 0:
-            variants = self.NOTES_PERFECT
-        elif n <= 2:
-            variants = self.NOTES_MINOR
-        elif n <= 4:
-            variants = self.NOTES_MODERATE
-        else:
-            variants = self.NOTES_MAJOR
-        return random.choice(variants).format(relaxed=relaxed_str)
-
-    def recommend(self, budget, continent, rest_type, season, duration="any", visa="any", interest="any"):
-        rows, relaxed, trace = self.db.find_relaxed(budget, continent, rest_type, season, duration, visa, interest)
-
-        # "Оценка уверенности" — чем меньше пришлось ослаблять условия, тем выше уверенность
-        confidence = max(40, 97 - len(relaxed) * 8 - random.randint(0, 6))
-
-        country, city, description = random.choice(rows)
-
-        names = {
-            "budget": BUDGET_NAMES.get(budget, budget),
-            "continent": CONTINENT_NAMES.get(continent, continent),
-            "type": REST_TYPE_NAMES.get(rest_type, rest_type),
-            "season": SEASON_NAMES.get(season, season),
-            "duration": DURATION_NAMES.get(duration, duration),
-            "visa": VISA_NAMES.get(visa, visa),
-            "interest": INTEREST_NAMES.get(interest, interest),
-        }
-        intro = random.choice(self.PHRASES_INTRO).format(**names)
-        note = self._closing_note(relaxed)
-
-        reasoning = f"{intro} направление «{country} — {city}».{note} Уверенность модели: {confidence}%."
-
-        return {
-            "country": country,
-            "city": city,
-            "description": description,
-            "reasoning": reasoning,
-            "mode": "🤖 ИИ-режим",
-            "confidence": confidence,
             "trace": trace,
             "relaxed": relaxed,
         }
@@ -1559,11 +1516,16 @@ class DestinationImageLoader(QObject):
 ####################################
 
 class MainWindow(QMainWindow):
+    AI_HINT_OFF = "ИИ сравнит с вашими ответами все направления сразу, объяснит выбор и учтёт ваши уточнения"
+
     def __init__(self, db: Database):
         super().__init__()
         self.db = db
+        self.ai = AIContext(_user_data_dir(), self)
+        self.ai.image_loader = DestinationImageLoader(self.ai.manager, self)
+        self.ai.converter.ensure()
         self.setWindowTitle("Экспертная система: Выбор направления для путешествия")
-        self.setGeometry(200, 100, 560, 480)
+        self.setGeometry(200, 100, 560, 560)
         self.init_ui()
 
     def init_ui(self):
@@ -1604,7 +1566,7 @@ class MainWindow(QMainWindow):
         ai_row.addStretch()
         layout.addLayout(ai_row)
 
-        self.ai_hint = QLabel("В режиме ИИ рекомендация формируется в разговорном стиле с оценкой уверенности")
+        self.ai_hint = QLabel(self.AI_HINT_OFF)
         self.ai_hint.setObjectName("subtitle")
         self.ai_hint.setAlignment(Qt.AlignCenter)
         self.ai_hint.setWordWrap(True)
@@ -1615,6 +1577,11 @@ class MainWindow(QMainWindow):
         start_btn = QPushButton("Начать подбор путешествия")
         start_btn.clicked.connect(self.start_wizard)
         layout.addWidget(start_btn)
+
+        ai_menu_btn = QPushButton("🤖 Меню ИИ и консультант")
+        ai_menu_btn.setObjectName("secondary")
+        ai_menu_btn.clicked.connect(self.open_ai_menu)
+        layout.addWidget(ai_menu_btn)
 
         history_btn = QPushButton("История подборов")
         history_btn.setObjectName("secondary")
@@ -1634,16 +1601,17 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
     def on_ai_toggle_changed(self, checked):
-        if checked:
-            self.icon_label.setText("🤖")
-            self.ai_hint.setText("🤖 Режим ИИ включён — ответы формируются в разговорном стиле с оценкой уверенности")
-            self.ai_hint.setStyleSheet("color: #2f9ed1; font-weight: 600; font-size: 14px;")
-        else:
-            self.icon_label.setText("✈️")
-            self.ai_hint.setText("В режиме ИИ рекомендация формируется в разговорном стиле с оценкой уверенности")
-            self.ai_hint.setStyleSheet("")
-
+        self.icon_label.setText("🤖" if checked else "✈️")
+        self._update_ai_hint()
         self._flash(self.icon_label)
+
+    def _update_ai_hint(self):
+        if not self.ai_toggle.isChecked():
+            self.ai_hint.setText(self.AI_HINT_OFF)
+            self.ai_hint.setStyleSheet("")
+        else:
+            self.ai_hint.setText("🤖 Режим ИИ включён: сравню все направления и найду лучший компромисс")
+            self.ai_hint.setStyleSheet("color: #2f9ed1; font-weight: 600; font-size: 14px;")
 
     def _flash(self, widget):
         """Короткая вспышка прозрачности - визуальный отклик на переключение тумблера."""
@@ -1658,9 +1626,15 @@ class MainWindow(QMainWindow):
         self._flash_anim = anim  # храним ссылку, чтобы анимация не была удалена раньше времени
 
     def start_wizard(self):
-        use_ai = self.ai_toggle.isChecked()
-        self.wizard = QuestionWizard(self.db, use_ai)
+        self.run_wizard(self.ai_toggle.isChecked())
+
+    def run_wizard(self, use_ai):
+        self.wizard = QuestionWizard(self.db, use_ai, self.ai)
         self.wizard.exec_()
+
+    def open_ai_menu(self):
+        AIMenuWindow(self.ai, self.db, self.run_wizard, self).exec_()
+        self._update_ai_hint()
 
     def open_history(self):
         self.history_window = HistoryWindow(self.db)
@@ -1692,12 +1666,13 @@ class QuestionWizard(QDialog):
         ("interest", "Интересы и впечатления", "interests"),
     ]
 
-    def __init__(self, db: Database, use_ai: bool):
+    def __init__(self, db: Database, use_ai: bool, ai: AIContext):
         super().__init__()
         self.db = db
         self.use_ai = use_ai
+        self.ai = ai
         self.rule_engine = RecommendationEngine(db)
-        self.ai_engine = AISimulatedEngine(db)
+        self.ai_engine = SmartEngine(QUERY_NAMES)
 
         self.answers = {}
         self.cat_index = 0
@@ -1707,13 +1682,20 @@ class QuestionWizard(QDialog):
 
         # Подгрузка фото направления по сети (см. show_result/_on_photo_loaded); при неудаче -
         # или пока картинка ещё не пришла - виден обычный эмодзи-значок direction.
-        self.network_manager = QNetworkAccessManager(self)
-        self.image_loader = DestinationImageLoader(self.network_manager, self)
+        # Загрузчик общий на всё приложение: если он принадлежит окну, то закрытие окна во время
+        # загрузки уничтожает сетевой менеджер вместе с летящими запросами и роняет процесс.
+        self.image_loader = ai.image_loader
         self._result_generation = 0
         self.result_icon_label = None
         self._travelers_generation = 0
 
-        self._pending_query = None
+        # Состояние подбора: запрос (меняется уточнениями), фильтры уточнений и показанный результат.
+        self._query = None
+        self._filters = empty_filters()
+        self._result = None
+        self._history_id = None
+        self._thinking_timer = None
+
         self._dot_timer = None
         self._dot_count = 0
         self._tw_timer = None
@@ -2048,35 +2030,89 @@ class QuestionWizard(QDialog):
             self.show_question()
 
     def finish(self):
-        budget = self.answers.get("budget", "any")
-        continent = self.answers.get("continent", "any")
-        rest_type = self.answers.get("rest_type", "any")
-        season = self.answers.get("season", "any")
-        duration = self.answers.get("duration", "any")
-        visa = self.answers.get("visa", "any")
-        interest = self.answers.get("interest", "any")
-
         # "any" передаётся в поиск как есть: это означает "пользователю не важно значение
         # этого критерия" (см. Database.find_relaxed - там такой критерий просто не участвует
         # в фильтрации). Раньше здесь "any" подменялось на первый вариант списка, из-за чего
         # почти любой запрос с "не важно" по интересам искусственно проваливал точное
         # совпадение и трасса вывода выглядела одинаково для всех направлений.
-        if self.use_ai:
-            # В ИИ-режиме сначала показываем "размышление", а расчёт делаем чуть позже -
-            # это и есть тот эффект "ИИ реально думает", который отличает режим от обычных правил
-            self._pending_query = (budget, continent, rest_type, season, duration, visa, interest)
-            self.show_thinking()
-        else:
-            result = self.rule_engine.recommend(
-                budget, continent, rest_type, season, duration, visa, interest
-            )
-            self._apply_absurd_note(result, continent, rest_type, duration)
-            self.db.save_history(budget, continent, rest_type, season, duration, visa, interest,
-                                  self.use_ai, result["country"], result["city"])
-            self.show_result(result)
+        self._query = {code: self.answers.get(code, "any") for code, _, _ in self.CATEGORIES}
+        self._filters = empty_filters()
+        self._history_id = None
 
-    def show_thinking(self):
-        """Экран 'ИИ анализирует ваши ответы' с бегущим индикатором и анимированными точками."""
+        if self.use_ai:
+            self.show_thinking("ИИ сравнивает направления", self._finish_ai)
+        else:
+            self._finish_rules()
+
+    def _query_args(self):
+        return [self._query[code] for code, _, _ in self.CATEGORIES]
+
+    def _finish_rules(self):
+        result = self.rule_engine.recommend(*self._query_args())
+        dest = result["destination"]
+        result["criteria"] = compare_with_query(dest, self._query, QUERY_NAMES)
+        result["cost"] = estimate_cost(dest, self._query, self.ai.settings.travelers)
+        self._accept_result(result)
+
+    def _finish_ai(self):
+        self._accept_result(self._run_ai(self._query, self._filters))
+
+    def _run_ai(self, query, filters):
+        # Последние подборы из истории: среди равноценных вариантов движок предложит новые.
+        recent = {(row[9], row[10]) for row in self.db.get_history()[:15]}
+        return self.ai_engine.recommend(
+            self.db.list_destination_dicts(), query, self.ai.settings.travelers, recent, filters)
+
+    def _accept_result(self, result):
+        """Общий финал: шутка про невозможное сочетание, история, экран результата."""
+        self._apply_absurd_note(result)
+        cost_usd = result["cost"]["total_usd"]
+        if self._history_id is None:
+            self._history_id = self.db.save_history(
+                *self._query_args(), self.use_ai, result["country"], result["city"], cost_usd)
+        else:
+            self.db.update_history_result(self._history_id, result["country"], result["city"], cost_usd)
+        self._result = result
+        self.ai.last_result = result
+        self.show_result(result)
+
+    def refine(self, wish):
+        """Уточнение обычным текстом: ИИ разбирает его и подбирает заново."""
+        wish = wish.strip()
+        if not wish or self._result is None or self._result["source"] != "ai":
+            return
+        destinations = self.db.list_destination_dicts()
+        query, filters, notes = parse_wish(
+            wish, self._query, self._filters, self._result, {d["country"] for d in destinations},
+            self.ai.converter.rate, QUERY_NAMES)
+        if not notes:
+            self._refine_message("Не понял уточнение. Попробуйте, например: «не больше 1000 $», «без Испании», "
+                                 "«с детьми на море», «на 5 дней зимой».")
+            return
+        if query == self._query and filters == self._filters:
+            self._refine_message("Это уже учтено: " + "; ".join(notes) + ".")
+            return
+        result = self._run_ai(query, filters)
+        if result is None:
+            self._refine_message("Понял: " + "; ".join(notes) + ". Но таких направлений в базе нет, поэтому "
+                                 "оставил прежний вариант.")
+            return
+        result["refinements"] = self._result["refinements"] + notes
+
+        def apply():
+            self._query, self._filters = query, filters
+            self._accept_result(result)
+
+        self.show_thinking("ИИ учитывает уточнение", apply)
+
+    def _refine_message(self, text):
+        self.refine_label.setText(text)
+        self.refine_label.show()
+
+    def show_thinking(self, text, then):
+        """Короткий экран «ИИ думает», после которого выполняется then()."""
+        self._stop_timers()
+        self._result_generation += 1  # фото для прежнего экрана больше не нужно
         self.clear_layout(self.layout)
 
         self.layout.addStretch()
@@ -2086,7 +2122,8 @@ class QuestionWizard(QDialog):
         icon.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(icon)
 
-        self.thinking_label = QLabel("ИИ анализирует ваши ответы")
+        self._thinking_text = text
+        self.thinking_label = QLabel(text)
         self.thinking_label.setAlignment(Qt.AlignCenter)
         self.thinking_label.setStyleSheet("font-size: 17px; font-weight: 600;")
         self.layout.addWidget(self.thinking_label)
@@ -2100,7 +2137,6 @@ class QuestionWizard(QDialog):
         bar_row.addWidget(busy_bar)
         bar_row.addStretch()
         self.layout.addLayout(bar_row)
-
         self.layout.addStretch()
 
         self._dot_count = 0
@@ -2108,48 +2144,43 @@ class QuestionWizard(QDialog):
         self._dot_timer.timeout.connect(self._tick_dots)
         self._dot_timer.start(350)
 
-        QTimer.singleShot(1500, self._finish_ai_thinking)
+        self._thinking_timer = QTimer(self)
+        self._thinking_timer.setSingleShot(True)
+        self._thinking_timer.timeout.connect(lambda: (self._stop_timers(), then()))
+        self._thinking_timer.start(1000)
 
     def _tick_dots(self):
         try:
             self._dot_count = (self._dot_count + 1) % 4
-            self.thinking_label.setText("ИИ анализирует ваши ответы" + "." * self._dot_count)
+            self.thinking_label.setText(self._thinking_text + "." * self._dot_count)
         except RuntimeError:
             # Виджет уже уничтожен (окно закрыли/перезапустили во время анимации)
-            if self._dot_timer:
-                self._dot_timer.stop()
+            self._stop_dots()
 
-    def _finish_ai_thinking(self):
+    def _stop_dots(self):
         if self._dot_timer:
             self._dot_timer.stop()
+            self._dot_timer.deleteLater()
             self._dot_timer = None
 
-        if self._pending_query is None:
-            return  # пользователь успел нажать "заново" или закрыть окно - отменяем расчёт
-
-        budget, continent, rest_type, season, duration, visa, interest = self._pending_query
-        self._pending_query = None
-
-        result = self.ai_engine.recommend(
-            budget, continent, rest_type, season, duration, visa, interest
-        )
-        self._apply_absurd_note(result, continent, rest_type, duration)
-        self.db.save_history(budget, continent, rest_type, season, duration, visa, interest,
-                              self.use_ai, result["country"], result["city"])
-        self.show_result(result)
-
-    def _apply_absurd_note(self, result, continent, rest_type, duration):
+    def _apply_absurd_note(self, result):
         """Если пользователь запросил физически невозможное сочетание (например, пляжный
         отдых в Антарктиде), вставляет в начало объяснения честную саркастичную реплику
-        об этом - см. build_absurd_note()."""
-        note = build_absurd_note(continent, rest_type, duration, result.get("relaxed", []), result)
-        if note:
-            result["reasoning"] = note + " " + result["reasoning"]
+        об этом - см. build_absurd_note(). Реплика говорит "вот вариант в другом месте", поэтому
+        нужна только для направления, которое действительно на другом континенте."""
+        dest = result["destination"]
+        continent = self._query["continent"]
+        if dest["continent_code"] != continent:
+            note = build_absurd_note(
+                continent, self._query["rest_type"], self._query["duration"], result["relaxed"], result)
+            if note:
+                result["reasoning"] = note + " " + result["reasoning"]
         return result
 
     def show_result(self, result):
         # Очищаем текущий layout и строим экран результата (сам self.layout не пересоздаём)
         self.clear_layout(self.layout)
+        is_ai = result["source"] == "ai"
 
         # Новый "поколение" результата: если пользователь уйдёт с этого экрана (перезапуск,
         # закрытие) раньше, чем придёт фото по сети, устаревший ответ просто игнорируется.
@@ -2175,31 +2206,36 @@ class QuestionWizard(QDialog):
             on_failure=lambda: None,  # ничего не делаем - эмодзи-иконка уже показана
         )
 
-        title = QLabel(f"{result['country']} — {result['city']}")
+        title = plain_label(f"{result['country']} — {result['city']}", align=Qt.AlignCenter)
         title.setObjectName("title")
-        title.setAlignment(Qt.AlignCenter)
-        title.setWordWrap(True)
         self.layout.addWidget(title)
 
-        desc = QLabel(result["description"])
-        desc.setAlignment(Qt.AlignCenter)
-        desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 15px;")
-        self.layout.addWidget(desc)
+        self.layout.addWidget(plain_label(result["description"], "font-size: 15px;", Qt.AlignCenter))
 
         self.layout.addSpacing(6)
 
-        self.reasoning_label = QLabel("")
-        self.reasoning_label.setWordWrap(True)
-        self.reasoning_label.setAlignment(Qt.AlignCenter)
-        self.reasoning_label.setStyleSheet("font-size: 13px; color: #4c6c82; padding: 8px; "
-                                            "background-color: #dff2fb; border-radius: 8px;")
+        if result.get("refinements"):
+            self.layout.addWidget(plain_label("Учтено: " + "; ".join(result["refinements"]),
+                                              "font-size: 12px; color: #4c6c82;", Qt.AlignCenter))
+
+        self.reasoning_label = plain_label(
+            "", "font-size: 13px; color: #4c6c82; padding: 8px; "
+                "background-color: #dff2fb; border-radius: 8px;", Qt.AlignCenter)
         self.layout.addWidget(self.reasoning_label)
 
-        if self.use_ai and "confidence" in result:
+        self.layout.addSpacing(4)
+        self.layout.addWidget(CostCard(result["cost"], self.ai.converter))
+
+        if is_ai:
+            self._add_ai_details(result)
+
+        if "confidence" in result:
             self.layout.addSpacing(4)
 
-            conf_label = QLabel(f"Уверенность ИИ: {result['confidence']}%")
+            matched, asked = count_matches(result["criteria"])
+            conf_label = QLabel(
+                f"Соответствие запросу: {result['confidence']}%"
+                + (f" · совпало критериев: {matched} из {asked}" if asked else ""))
             conf_label.setAlignment(Qt.AlignCenter)
             conf_label.setStyleSheet("font-size: 12px; color: #4c6c82;")
             self.layout.addWidget(conf_label)
@@ -2218,10 +2254,20 @@ class QuestionWizard(QDialog):
 
         self.layout.addSpacing(6)
 
+        if is_ai:
+            self._add_refine_box()
+
         explain_btn = QPushButton("Как получен этот результат?")
         explain_btn.setObjectName("secondary")
         explain_btn.clicked.connect(lambda: self.show_explanation(result))
         self.layout.addWidget(explain_btn)
+
+        self.layout.addSpacing(6)
+
+        chat_btn = QPushButton("💬 Обсудить с ИИ-консультантом")
+        chat_btn.setObjectName("secondary")
+        chat_btn.clicked.connect(lambda: AIConsultantWindow(self.ai, self.db, result, self).exec_())
+        self.layout.addWidget(chat_btn)
 
         self.layout.addSpacing(6)
 
@@ -2240,6 +2286,58 @@ class QuestionWizard(QDialog):
             self._start_typewriter(self.reasoning_label, result["reasoning"])
         else:
             self.reasoning_label.setText(result["reasoning"])
+
+    def _add_ai_details(self, result):
+        """Советы и запасные варианты."""
+        blocks = []
+        if result["tips"]:
+            blocks.append(("💡 Советы", ["• " + t for t in result["tips"]]))
+        alternatives = [
+            f"• {a['country']} — {a['city']} ({a['percent']}%, ≈ {format_usd(a['total_usd'])}): {a['reason']}"
+            for a in result["alternatives"]
+        ]
+        if alternatives:
+            blocks.append(("🔁 Запасные варианты", alternatives))
+        for title, lines in blocks:
+            self.layout.addWidget(plain_label(title, "font-size: 14px; font-weight: 600;"))
+            self.layout.addWidget(plain_label("\n".join(lines), "font-size: 13px;"))
+
+    def _add_refine_box(self):
+        """Поле «уточнить ответ»: ИИ разбирает пожелание и подбирает заново."""
+        self.layout.addWidget(plain_label("✏️ Уточнить ответ ИИ", "font-size: 14px; font-weight: 600;"))
+
+        row = QHBoxLayout()
+        refine_input = QLineEdit()
+        refine_input.setPlaceholderText("Например: с детьми на море, не больше 1000 $")
+        refine_input.setMaxLength(500)
+        refine_input.setStyleSheet("background-color: white; border: 1px solid #cfe3ee; "
+                                   "border-radius: 6px; padding: 9px;")
+        refine_btn = QPushButton("Уточнить")
+        refine_btn.clicked.connect(lambda: self.refine(refine_input.text()))
+        # Enter в поле нажимает кнопку по умолчанию - назначаем ею именно «Уточнить».
+        refine_btn.setDefault(True)
+        row.addWidget(refine_input, 1)
+        row.addWidget(refine_btn)
+        self.layout.addLayout(row)
+
+        chips = QHBoxLayout()
+        for text, wish in (
+            ("Дешевле", "Найди вариант дешевле"),
+            ("Другая страна", "Предложи другую страну"),
+            ("Спокойнее", "Хочу спокойное место"),
+            ("Активнее", "Хочу активный отдых"),
+        ):
+            chip = QPushButton(text)
+            chip.setObjectName("secondary")
+            chip.setAutoDefault(False)
+            chip.setStyleSheet("padding: 6px; font-size: 12px; border-width: 1px;")
+            chip.clicked.connect(lambda _=False, w=wish: self.refine(w))
+            chips.addWidget(chip)
+        self.layout.addLayout(chips)
+
+        self.refine_label = plain_label("", "font-size: 13px; color: #b3261e;")
+        self.refine_label.hide()
+        self.layout.addWidget(self.refine_label)
 
     def _on_photo_loaded(self, result_generation, label, pixmap):
         if result_generation != self._result_generation:
@@ -2279,7 +2377,7 @@ class QuestionWizard(QDialog):
         return rounded
 
     def show_explanation(self, result):
-        self.explanation_window = ExplanationWindow(result)
+        self.explanation_window = ExplanationWindow(result, self.ai.converter)
         self.explanation_window.exec_()
 
     def _animate_confidence(self, bar, target_value):
@@ -2323,13 +2421,14 @@ class QuestionWizard(QDialog):
                 self._tw_timer.stop()
 
     def _stop_timers(self):
-        if self._dot_timer:
-            self._dot_timer.stop()
-            self._dot_timer = None
+        """Останавливает анимации и отменяет отложенный показ результата."""
+        self._stop_dots()
+        if self._thinking_timer:
+            self._thinking_timer.stop()
+            self._thinking_timer = None
         if self._tw_timer:
             self._tw_timer.stop()
             self._tw_timer = None
-        self._pending_query = None
 
     def clear_layout(self, layout):
         """Полностью выгружает виджеты и вложенные layout'ы, не трогая сам layout-контейнер."""
@@ -2345,15 +2444,18 @@ class QuestionWizard(QDialog):
 
     def restart(self):
         self._stop_timers()
+        self._result = None
         self.answers = {}
         self.cat_index = 0
         self.opt_index = 0
         self.history_stack = []
         self.begin_main_flow()
 
-    def closeEvent(self, event):
+    def done(self, code):
+        # Сюда сходятся все способы закрыть окно: кнопка, крестик и Esc.
         self._stop_timers()
-        super().closeEvent(event)
+        self._result_generation += 1
+        super().done(code)
 
 
 ####################################
@@ -2362,72 +2464,156 @@ class QuestionWizard(QDialog):
 
 class ExplanationWindow(QDialog):
     """
-    Показывает пошаговую трассу вывода экспертной системы: какие критерии
-    проверялись, где не нашлось совпадений и какие условия пришлось ослабить.
+    Показывает, как получена рекомендация: ответы пользователя, ход отбора (трасса правил или рейтинг
+    ИИ), сверка по каждому критерию с баллами, расчёт суммы и итоговой оценки.
     """
 
-    def __init__(self, result):
+    STATUS = {
+        "match": ("✅", "#dff2fb"), "partial": ("🟡", "#fff6db"), "mismatch": ("❌", "#fbe4e2"),
+    }
+    MUTED = "font-size: 12px; color: #4c6c82;"
+
+    def __init__(self, result, converter):
         super().__init__()
         self.setWindowTitle("Как получена рекомендация")
-        self.setMinimumSize(520, 520)
+        self.setMinimumSize(560, 620)
+        self.result = result
+        self.is_ai = result["source"] == "ai"
 
         layout = QVBoxLayout()
         self.setLayout(layout)
 
         title = QLabel("Ход рассуждения")
         title.setObjectName("title")
-        title.setWordWrap(True)
         layout.addWidget(title)
 
-        subtitle = QLabel(f"Итоговый выбор: {result['country']} — {result['city']}")
+        subtitle = plain_label(f"Итоговый выбор: {result['country']} — {result['city']}")
         subtitle.setObjectName("subtitle")
-        subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
-
-        layout.addSpacing(8)
+        layout.addWidget(plain_label(result["mode"], self.MUTED))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-
         steps_widget = QWidget()
-        steps_layout = QVBoxLayout()
-        steps_layout.setSpacing(6)
-        steps_widget.setLayout(steps_layout)
+        self.steps = QVBoxLayout()
+        self.steps.setSpacing(6)
+        steps_widget.setLayout(self.steps)
 
-        for i, step in enumerate(result.get("trace", []), start=1):
-            mark = "✅" if step["success"] else "❌"
-            text = f"{i}. {mark} {step['stage']} — совпадений: {step['count']}"
-            step_label = QLabel(text)
-            step_label.setWordWrap(True)
-            if step["success"]:
-                step_label.setStyleSheet(
-                    "padding: 8px; border-radius: 6px; background-color: #dff2fb; font-weight: 600;"
-                )
-            else:
-                step_label.setStyleSheet(
-                    "padding: 8px; border-radius: 6px; background-color: #f0f0f0; color: #8a8a8a;"
-                )
-            steps_layout.addWidget(step_label)
+        self._step = 0
+        self._add_answers()
+        if self.is_ai:
+            self._add_ranking()
+        else:
+            self._add_trace()
+            self._add_rule_choice()
+        self._add_criteria()
+        self._add_cost(converter)
 
-        if "confidence" in result:
-            steps_layout.addSpacing(4)
-            conf_label = QLabel(
-                f"🤖 Уверенность ИИ ({result['confidence']}%) считается по правилу: "
-                "чем меньше критериев пришлось ослабить на шагах выше, тем выше итоговая уверенность."
-            )
-            conf_label.setWordWrap(True)
-            conf_label.setStyleSheet("font-size: 12px; color: #4c6c82; padding: 8px; "
-                                      "background-color: #eef6fb; border-radius: 6px;")
-            steps_layout.addWidget(conf_label)
-
-        steps_layout.addStretch()
+        self.steps.addStretch()
         scroll.setWidget(steps_widget)
         layout.addWidget(scroll)
 
         close_btn = QPushButton("Закрыть")
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
+
+    def _heading(self, text):
+        self._step += 1
+        self.steps.addSpacing(8)
+        self.steps.addWidget(plain_label(f"{self._step}. {text}", "font-size: 15px; font-weight: 700;"))
+
+    def _line(self, text, color="#dff2fb", extra=""):
+        self.steps.addWidget(plain_label(
+            text, f"font-size: 13px; padding: 8px; border-radius: 6px; background-color: {color}; {extra}"))
+
+    def _note(self, text):
+        self.steps.addWidget(plain_label(text, self.MUTED))
+
+    def _add_answers(self):
+        self._heading("Ваши ответы")
+        asked = [f"{c['title']}: {c['wanted']}" for c in self.result["criteria"] if c["status"] != "any"]
+        free = [c["title"].lower() for c in self.result["criteria"] if c["status"] == "any"]
+        if asked:
+            self._line("\n".join(asked))
+        if free:
+            self._note("Не важно (в подборе не участвует): " + ", ".join(free))
+        for wish in self.result.get("refinements", []):
+            self._line(f"✏️ Уточнение: {wish}", "#fff6db")
+
+    def _add_trace(self):
+        self._heading("Отбор по базе знаний")
+        self._note("Условия ослабляются от наименее важного к самому важному, пока не найдётся совпадение.")
+        for step in self.result["trace"]:
+            if step["success"]:
+                self._line(f"✅ {step['stage']} — совпадений: {step['count']}", extra="font-weight: 600;")
+            else:
+                self._line(f"❌ {step['stage']} — совпадений: {step['count']}", "#f0f0f0", "color: #8a8a8a;")
+
+    def _add_rule_choice(self):
+        self._heading("Выбор варианта")
+        count = self.result["trace"][-1]["count"]
+        if count > 1:
+            self._line(f"Подошло направлений: {count}. Для правил они равноценны, поэтому одно выбрано случайно.")
+        else:
+            self._line("Подошло единственное направление, оно и предложено.")
+
+    def _add_ranking(self):
+        result = self.result
+        self._heading("Сравнение направлений")
+        self._note("ИИ не отбрасывает условия по очереди, а оценивает каждое направление по всем важным для "
+                   "вас критериям сразу: чем важнее критерий и точнее совпадение, тем больше баллов.")
+        skipped = result["total_destinations"] - result["considered"]
+        text = f"Сравнил направлений: {result['considered']}"
+        if skipped:
+            text += f" (ещё {skipped} исключено вашими уточнениями)"
+        self._line(f"{text}. Соответствие 80% и выше: {result['strong']}.")
+        for place, item in enumerate(result["ranking"], start=1):
+            if item["chosen"]:
+                self._line(f"✅ {place}. {item['place']}: {item['percent']}%", extra="font-weight: 600;")
+            else:
+                self._line(f"{place}. {item['place']}: {item['percent']}%", "#f0f0f0")
+        if result["equal"] > 1:
+            text = f"Почти равных лидеров: {result['equal']}, из них выбран один случайно"
+            if result["skipped_recent"]:
+                text += f"; недавно показанные вам ({result['skipped_recent']}) пропущены"
+            self._note(text + ".")
+
+    def _add_criteria(self):
+        self._heading("Сверка по критериям")
+        asked = [c for c in self.result["criteria"] if c["status"] != "any"]
+        if not asked:
+            self._note("Вы не задали ни одного критерия, поэтому подходит любое направление.")
+            return
+        for c in asked:
+            mark, color = self.STATUS[c["status"]]
+            text = f"{mark} {c['title']}: вы хотели «{c['wanted']}», у направления «{c['actual']}»"
+            if self.is_ai:
+                text += f"\n{c['weight'] * c['degree']:.1f} из {c['weight']} баллов"
+            self._line(text, color)
+        if self.is_ai:
+            earned = sum(c["weight"] * c["degree"] for c in asked)
+            total = sum(c["weight"] for c in asked)
+            self._line(f"Итого {earned:.1f} из {total} баллов = соответствие {self.result['confidence']}%",
+                       extra="font-weight: 600;")
+            self._note("«Любой» у направления даёт чуть меньше полного балла: в базе нет ограничения, но нет и "
+                       "подтверждения, что место именно для этого.")
+        else:
+            matched, total = count_matches(self.result["criteria"])
+            self._note(f"Совпало полностью или частично: {matched} из {total}")
+
+    def _add_cost(self, converter):
+        cost = self.result["cost"]
+        self._heading("Как посчитана сумма")
+        for item in cost["items"]:
+            self._line(f"{item['category']}: {format_usd(item['amount_usd'])}", "#f0f0f0")
+        kzt = converter.format_kzt(cost["total_usd"])
+        self._line(f"Итого на {cost['travelers']} чел.: ≈ {format_usd(cost['total_usd'])}"
+                   + (f" ({kzt})" if kzt else ""), extra="font-weight: 600;")
+        self._note("Основа - уровень цен направления в базе, сдвинутый по длительности поездки и умноженный на "
+                   "число путешественников. По статьям сумма разделена типичными долями: дорога зависит от "
+                   "дальности континента, остальное - от типа отдыха. Это ориентир, а не цены на билеты.")
+        self._note(converter.describe())
 
 
 ####################################
@@ -2452,10 +2638,10 @@ class HistoryWindow(QDialog):
         layout.addWidget(title)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels(
             ["Дата", "Бюджет", "Континент", "Тип отдыха", "Сезон", "Длительность",
-             "Виза", "Интересы", "Режим", "Страна", "Город"]
+             "Виза", "Интересы", "Режим", "Страна", "Город", "Сумма"]
         )
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -2482,10 +2668,11 @@ class HistoryWindow(QDialog):
         rows = self.db.get_history()
         self.table.setRowCount(len(rows))
         for r, (dt, budget, continent, rest_type, season, duration, visa, interest,
-                use_ai, country, city) in enumerate(rows):
+                use_ai, country, city, cost_usd) in enumerate(rows):
             values = [
                 dt, budget, continent, rest_type, season, duration, visa, interest,
                 "ИИ" if use_ai else "Правила", country, city,
+                "" if cost_usd is None else format_usd(cost_usd),
             ]
             for c, val in enumerate(values):
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
@@ -2508,7 +2695,7 @@ class HistoryWindow(QDialog):
 class KnowledgeBaseWindow(QDialog):
     """
     Позволяет добавлять и удалять направления (правила подбора) без правки кода -
-    ровно те факты, которыми оперирует RecommendationEngine / AISimulatedEngine.
+    ровно те факты, которыми оперирует RecommendationEngine / SmartEngine.
     """
 
     def __init__(self, db: Database):

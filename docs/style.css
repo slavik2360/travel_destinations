@@ -129,3 +129,50 @@ p.subtitle { color: var(--subtext); text-align: center; margin: 0 0 14px; line-h
 .empty-note { color: var(--subtext); text-align: center; font-size: 13px; padding: 16px 0; }
 
 footer.hint { text-align: center; color: var(--subtext); font-size: 11.5px; margin-top: 18px; }
+
+/* ---------- ИИ: стоимость, консультант, объяснение ---------- */
+[hidden] { display: none !important; }
+
+.cost-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 12px 0; text-align: center; font-size: 13.5px; }
+.cost-card .meta { color: var(--subtext); font-size: 13px; }
+.cost-total { font-size: 21px; font-weight: 700; margin: 4px 0; }
+.cost-status { font-weight: 600; margin: 8px 0; }
+.cost-row { display: flex; justify-content: space-between; gap: 12px; text-align: left; padding: 3px 0; }
+.cost-row b { white-space: nowrap; }
+.cost-note { color: var(--subtext); font-size: 11.5px; margin-top: 6px; }
+
+.trace-step { white-space: pre-line; overflow-wrap: anywhere; }
+.trace-step.plain { background: var(--chip-bg); }
+.trace-step.mid { background: #fff6db; }
+.trace-step.bad { background: #fbe4e2; }
+.step-title { font-size: 15px; margin: 18px 0 6px; }
+.meta-line { color: var(--subtext); font-size: 12px; margin: 4px 0; line-height: 1.45; }
+
+.chip { display: block; width: 100%; padding: 9px 12px; margin: 6px 0; border: 1px solid var(--accent); border-radius: 10px; background: #fff; color: var(--accent); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.chip.inline { display: inline-block; width: auto; margin: 4px 4px 4px 0; }
+.refine { margin: 14px 0; }
+
+.chat { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.bubble { align-self: flex-start; max-width: 88%; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.bubble.user { align-self: flex-end; background: #1e7fab; border-color: #1e7fab; color: #fff; white-space: pre-wrap; }
+.bubble p { margin: 0 0 8px; }
+.bubble > :last-child { margin-bottom: 0; }
+.bubble ul, .bubble ol { margin: 0 0 8px; padding-left: 20px; }
+.chat-input { display: flex; gap: 8px; align-items: stretch; margin: 8px 0; }
+.chat-input textarea, .chat-input input { flex: 1; min-width: 0; padding: 10px; border-radius: 10px; border: 1px solid var(--border); font: inherit; font-size: 16px; resize: none; background: #fff; color: var(--text); }
+.chat-input .btn { width: auto; margin: 0; padding: 10px 16px; font-size: 14.5px; }
+
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--subtext); margin: 8px 0; }
+.status-note { font-size: 13px; text-align: center; margin: 6px 0; min-height: 1em; }
+.status-note.ok { color: #1c7c43; }
+.status-note.bad { color: #b3261e; }
+
+/* Неприметный вход в параметры */
+.gear { align-self: flex-end; border: none; background: none; color: #a9b7c0; font-size: 18px; line-height: 1; padding: 6px; cursor: pointer; }
+.gear:hover { color: var(--accent); }
+.more { margin: 10px 0; }
+.more summary { color: #7d919e; font-size: 12px; cursor: pointer; }
+.modes { display: flex; gap: 18px; align-items: center; font-size: 14px; }
+.field.modes label { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-size: 14px; }
+.field.modes input { width: auto; }
+.cost-note.center { text-align: center; }

@@ -159,7 +159,7 @@
     { key: 'FK', name: 'rest_type', note: "'any'" }, { key: 'FK', name: 'season', note: "'any'" },
     { key: 'FK', name: 'duration', note: "'any'" }, { key: 'FK', name: 'visa', note: "'any'" },
     { key: 'FK', name: 'interest', note: "'any'" },
-    { name: 'use_ai' }, { name: 'country' }, { name: 'city' }
+    { name: 'use_ai' }, { name: 'country' }, { name: 'city' }, { name: 'cost_usd', note: 'NULL' }
   ];
   const histNode = drawTable(startX, cursorY, totalW, 'history  (журнал подборов)', HIST_COLS);
   anchorNodes.forEach(function (node, i) {
@@ -173,6 +173,13 @@
   ], true);
   svg.appendChild(text(seedNode.x + seedNode.w + 12, seedNode.top + seedNode.h / 2 + 4, '← без связей с остальными таблицами', 'rel-field', 'start'));
   cursorY = seedNode.bottom + 20;
+
+  // --- chat_messages: переписка с ИИ-консультантом, без связей ---
+  const chatNode = drawTable(startX, cursorY, 220, 'chat_messages', [
+    { key: 'PK', name: 'id' }, { name: 'dt' }, { name: 'role' }, { name: 'content' }
+  ], true);
+  svg.appendChild(text(chatNode.x + chatNode.w + 12, chatNode.top + chatNode.h / 2 + 4, '← переписка с ИИ-консультантом, без связей', 'rel-field', 'start'));
+  cursorY = chatNode.bottom + 20;
 
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + cursorY);
   svg.setAttribute('width', W);
